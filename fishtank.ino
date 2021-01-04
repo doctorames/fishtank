@@ -16,6 +16,8 @@
 #include <SPI.h>
 #include <LiquidCrystal_I2C.h>
 
+#include "certs.h"
+
 #ifndef TEST_CODE
 
 #define DEBUG 0
@@ -79,7 +81,7 @@ bool lcdIsOn = false;
 IPAddress localIP;
 unsigned long lcdTimeoutCounter = 0;
 float trustedTemp;
-char httpStr[64];
+char httpStr[256];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
 
@@ -116,6 +118,7 @@ bool tempOutOfRangeForTooLong = false;
 
 int correctionTimer = 0;
 int correctionTimerStart = 0;
+unsigned long currentPumpStateStart = 0;
 bool badTempAlertPending = false;
 bool badTempAlertSent = false;
 bool extremeLowTempAlertPending = false;
@@ -136,7 +139,7 @@ typedef struct _SensorInfo {
   byte          stickerId; // The number we assign to the sensor when we physically put a sticker on it
   bool          blacklisted;
   bool          ambient;
-  DeviceAddress address;   // The factory-assigned ID of the sensor
+  DeviceAddress address;   // The factory-assigned ID of the sensor (we have no say in this)
 } SensorInfo;
 
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
@@ -237,8 +240,8 @@ bool connectToAWS()
 
 bool sendMessageToAWS(const char* message)
 {
-  Serial.println("sendMessageToAws() DISABLED!!");
-  return true;
+  // Serial.println("sendMessageToAws() DISABLED!!");
+  // return true;
   if (!internetIsUp) return false;
   if (!connectToAWS()) {
       // this is no bueno
@@ -368,7 +371,7 @@ void IRAM_ATTR PbVector() {
   // logic is "pushButtonSemaphore++"
   // I learned the hard way that ISR's must be blazingly quick on ESP32,
   // else the watchdog will think the loop() is in the weeds and will reboot
-  // the system.
+  // the damn cpu.
   interruptTime = millis();
   if (interruptTime - lastInterruptTime > 200) pushButtonSemaphore++;
   lastInterruptTime = interruptTime;
@@ -439,7 +442,7 @@ void setup() {
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
   if (reason_cpu0 == POWERON_RESET) {
     // Just say there was a power failure
-    // sendMessageToAWS("Fishtank controller has recovered from a power failure.");
+    sendMessageToAWS("Fishtank controller has recovered from a power failure.");
   } else {
     // This was something weirder than a power blip/failure.
     // I need to know what it was.
@@ -450,7 +453,7 @@ void setup() {
     recoveryMessage += "\nCPU1 Reason: ";
     recoveryMessage += getResetReasonString(reason_cpu1);
     recoveryMessage.toCharArray(str, recoveryMessage.length());
-    // sendMessageToAWS(str);
+    sendMessageToAWS(str);
   }
 
 
@@ -830,6 +833,9 @@ void loop() {
       // We are now in a correction. Reset the timer.
       correctionTimerStart = millis();
       temperatureIsGood = false;
+
+      // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
+      currentPumpStateStart = correctionTimerStart;
     }
     // Check for absolute lower threshold
     if (trustedTemp <= TEMP_ABSOLUTE_LOWER && !extremeLowTempAlertSent) {
@@ -851,6 +857,9 @@ void loop() {
       // We are now in a correction. Reset the timer.
       correctionTimerStart = millis();
       temperatureIsGood = false;
+
+      // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
+      currentPumpStateStart = correctionTimerStart;
     }
     // Check for absolute upper threshold
     if (trustedTemp >= TEMP_ABSOLUTE_UPPER && !extremeHighTempAlertSent) {
@@ -921,6 +930,11 @@ void loop() {
                 client.print(httpStr);
               }
             }
+            client.print("</br>");
+
+            // Show pump state
+            sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
+            client.print(httpStr);
             
             client.print("</p></body></html>");
             Serial.println("Response sent.");
