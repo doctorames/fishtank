@@ -88,7 +88,8 @@ short pushButtonSemaphore = 0;
 typedef enum {
   showWifi,
   showWaterTemp,
-  showAmbientTemp
+  showAmbientTemp,
+  showPumpStatus
 } WhatToDisplay;
 
 WhatToDisplay displaySelector = showWifi;
@@ -661,7 +662,7 @@ void loop() {
       lcd.setCursor(0,1);
       lcd.print(trustedTemp);
     } else if (displaySelector == showAmbientTemp) {
-      displaySelector = showWifi;
+      displaySelector = showPumpStatus;
       lcd.print("Ambient Temp:");
       lcd.setCursor(0,1);
       for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
@@ -670,6 +671,12 @@ void loop() {
           break;
         }
       }
+    } else if (displaySelector == showPumpStatus) {
+      displaySelector = showWifi;
+      lcd.print(pumpIsOn ? "Pump is ON" : "Pump is OFF");
+      lcd.setCursor(0,1);
+      lcd.print(((millis() - currentPumpStateStart) / 1000) / 60);
+      lcd.print(" minutes");
     }
     pushButtonSemaphore = 0;
   }
