@@ -85,6 +85,14 @@ char httpStr[256];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
 
+typedef enum {
+  showWifi,
+  showWaterTemp,
+  showAmbientTemp
+} WhatToDisplay;
+
+WhatToDisplay displaySelector = showWifi;
+
 unsigned long httpCurrentMillis = 0;
 unsigned long httpLastMillis = 0;
 unsigned long httpElapsedMillis = 0;
@@ -93,7 +101,6 @@ unsigned long millisSinceOneSensorTimerNagSent = 0;
 unsigned long currentOneSensorTimerTick = 0;
 unsigned long lastOneSensorTimerTick = 0;
 bool oneSensorNagSent = false;
-bool showWifi = false;
 
 float deltaHi;
 float deltaLo;
@@ -642,17 +649,27 @@ void loop() {
     lcd.setCursor(0,0);
     lcdIsOn = true;
     lcdTimeoutCounter = 0;
-    if (!showWifi) {
-      showWifi = true;
+    if (displaySelector == showWifi) {
+      displaySelector = showWaterTemp;
       lcd.print("SSID:");
       lcd.print(WiFi.SSID());
       lcd.setCursor(0,1);
       lcd.print(WiFi.localIP());
-    } else {
-      showWifi = false;
-      lcd.print("Temperature");
+    } else if (displaySelector == showWaterTemp) {
+      displaySelector = showAmbientTemp;
+      lcd.print("Water Temp:");
       lcd.setCursor(0,1);
       lcd.print(trustedTemp);
+    } else if (displaySelector == showAmbientTemp) {
+      displaySelector = showWifi;
+      lcd.print("Ambient Temp:");
+      lcd.setCursor(0,1);
+      for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+        if (sensorMap[i].ambient) {
+          lcd.print(sensors.getTempF(sensorMap[i].address));
+          break;
+        }
+      }
     }
     pushButtonSemaphore = 0;
   }
