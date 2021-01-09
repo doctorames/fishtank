@@ -85,6 +85,15 @@ char httpStr[256];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
 
+typedef enum {
+  showWifi,
+  showWaterTemp,
+  showAmbientTemp,
+  showPumpStatus
+} WhatToDisplay;
+
+WhatToDisplay displaySelector = showWifi;
+
 unsigned long httpCurrentMillis = 0;
 unsigned long httpLastMillis = 0;
 unsigned long httpElapsedMillis = 0;
@@ -93,7 +102,6 @@ unsigned long millisSinceOneSensorTimerNagSent = 0;
 unsigned long currentOneSensorTimerTick = 0;
 unsigned long lastOneSensorTimerTick = 0;
 bool oneSensorNagSent = false;
-bool showWifi = false;
 
 float deltaHi;
 float deltaLo;
@@ -642,17 +650,33 @@ void loop() {
     lcd.setCursor(0,0);
     lcdIsOn = true;
     lcdTimeoutCounter = 0;
-    if (!showWifi) {
-      showWifi = true;
+    if (displaySelector == showWifi) {
+      displaySelector = showWaterTemp;
       lcd.print("SSID:");
       lcd.print(WiFi.SSID());
       lcd.setCursor(0,1);
       lcd.print(WiFi.localIP());
-    } else {
-      showWifi = false;
-      lcd.print("Temperature");
+    } else if (displaySelector == showWaterTemp) {
+      displaySelector = showAmbientTemp;
+      lcd.print("Water Temp:");
       lcd.setCursor(0,1);
       lcd.print(trustedTemp);
+    } else if (displaySelector == showAmbientTemp) {
+      displaySelector = showPumpStatus;
+      lcd.print("Ambient Temp:");
+      lcd.setCursor(0,1);
+      for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+        if (sensorMap[i].ambient) {
+          lcd.print(sensors.getTempF(sensorMap[i].address));
+          break;
+        }
+      }
+    } else if (displaySelector == showPumpStatus) {
+      displaySelector = showWifi;
+      lcd.print(pumpIsOn ? "Pump is ON" : "Pump is OFF");
+      lcd.setCursor(0,1);
+      lcd.print(((millis() - currentPumpStateStart) / 1000) / 60);
+      lcd.print(" minutes");
     }
     pushButtonSemaphore = 0;
   }
@@ -707,7 +731,7 @@ void loop() {
           // Send message to the cloud
           String strTempA = String(tempA);
           String strTempB = String(tempB);
-          sprintf(charErrorMessage, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me!\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
+          sprintf(charErrorMessage, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
           
           Serial.println(charErrorMessage);
           sendMessageToAWS(charErrorMessage);
