@@ -21,12 +21,15 @@
 #ifndef TEST_CODE
 
 #define DEBUG 0
+#define PRODUCTION_UNIT 0
 
-
+#if PRODUCTION_UNIT
 char ssid[] = "ATT4meZ5qR";
 char pass[] = "7xj%4%82sxz5";
-// char ssid[] = "ATT8Vnn5MG";
-// char pass[] = "72+wwi7w6b=q";
+#else
+char ssid[] = "ATT8Vnn5MG";
+char pass[] = "72+wwi7w6b=q";
+#endif
 
 // char ssid[] = "Ugh";
 // char pass[] = "aaadaa001";
@@ -85,6 +88,15 @@ char httpStr[256];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
 
+typedef enum {
+  showWifi,
+  showWaterTemp,
+  showAmbientTemp,
+  showPumpStatus
+} WhatToDisplay;
+
+WhatToDisplay displaySelector = showWifi;
+
 unsigned long httpCurrentMillis = 0;
 unsigned long httpLastMillis = 0;
 unsigned long httpElapsedMillis = 0;
@@ -93,7 +105,6 @@ unsigned long millisSinceOneSensorTimerNagSent = 0;
 unsigned long currentOneSensorTimerTick = 0;
 unsigned long lastOneSensorTimerTick = 0;
 bool oneSensorNagSent = false;
-bool showWifi = false;
 
 float deltaHi;
 float deltaLo;
@@ -142,12 +153,21 @@ typedef struct _SensorInfo {
   DeviceAddress address;   // The factory-assigned ID of the sensor (we have no say in this)
 } SensorInfo;
 
+#if PRODUCTION_UNIT
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
   { 0xff, (byte)1, false, false, {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
   { 0xff, (byte)2, false, false, {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
   { 0xff, (byte)3, false, false, {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
   { 0xff, (byte)4, false, true,  {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}} // ambient sensor
 };
+#else
+SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
+  { 0xff, (byte)1, false, false, {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
+  { 0xff, (byte)2, false, false, {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
+  { 0xff, (byte)3, false, false, {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
+  { 0xff, (byte)4, false, true,  {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}}  // orange (ambient)
+};
+#endif
 
 
 
@@ -178,19 +198,6 @@ SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
 
 
 
-
-
-
-
-// void printAddress(DeviceAddress deviceAddress) {
-  
-//   for (uint8_t i = 0; i < 8; i++) {
-    
-//     if (deviceAddress[i] < 16) 
-//       Serial.print("0");
-//       Serial.print(deviceAddress[i], HEX);
-//   }
-// }
 
 bool compareAddresses(DeviceAddress a, DeviceAddress b) {
   bool result = true;
@@ -240,8 +247,10 @@ bool connectToAWS()
 
 bool sendMessageToAWS(const char* message)
 {
-  // Serial.println("sendMessageToAws() DISABLED!!");
-  // return true;
+#if !PRODUCTION_UNIT
+  Serial.println("sendMessageToAws() DISABLED!!");
+  return true;
+#endif
   if (!internetIsUp) return false;
   if (!connectToAWS()) {
       // this is no bueno
@@ -642,17 +651,33 @@ void loop() {
     lcd.setCursor(0,0);
     lcdIsOn = true;
     lcdTimeoutCounter = 0;
-    if (!showWifi) {
-      showWifi = true;
+    if (displaySelector == showWifi) {
+      displaySelector = showWaterTemp;
       lcd.print("SSID:");
       lcd.print(WiFi.SSID());
       lcd.setCursor(0,1);
       lcd.print(WiFi.localIP());
-    } else {
-      showWifi = false;
-      lcd.print("Temperature");
+    } else if (displaySelector == showWaterTemp) {
+      displaySelector = showAmbientTemp;
+      lcd.print("Water Temp:");
       lcd.setCursor(0,1);
       lcd.print(trustedTemp);
+    } else if (displaySelector == showAmbientTemp) {
+      displaySelector = showPumpStatus;
+      lcd.print("Ambient Temp:");
+      lcd.setCursor(0,1);
+      for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+        if (sensorMap[i].ambient) {
+          lcd.print(sensors.getTempF(sensorMap[i].address));
+          break;
+        }
+      }
+    } else if (displaySelector == showPumpStatus) {
+      displaySelector = showWifi;
+      lcd.print(pumpIsOn ? "Pump is ON" : "Pump is OFF");
+      lcd.setCursor(0,1);
+      lcd.print(((millis() - currentPumpStateStart) / 1000) / 60);
+      lcd.print(" minutes");
     }
     pushButtonSemaphore = 0;
   }
@@ -707,7 +732,7 @@ void loop() {
           // Send message to the cloud
           String strTempA = String(tempA);
           String strTempB = String(tempB);
-          sprintf(charErrorMessage, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me!\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
+          sprintf(charErrorMessage, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
           
           Serial.println(charErrorMessage);
           sendMessageToAWS(charErrorMessage);
