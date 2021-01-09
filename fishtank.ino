@@ -9,7 +9,8 @@
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 
-#include <WiFiServer.h>
+#include <WebServer.h>
+#include <Update.h>
 
 //#include <OneWire.h>  <-- OneWire.h is already included in DallasTemperature.h
 #include <DallasTemperature.h>
@@ -137,10 +138,46 @@ bool extremeLowTempAlertSent = false;
 bool extremeHighTempAlertPending = false;
 bool extremeHighTempAlertSent = false;
 
+char* upgradeHtml = 
+"<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></script>"
+"<form method='POST' action='#' enctype='multipart/form-data' id='upload_form'>"
+"  <input type='file' name='update'>"
+"  <input type='submit' value='Update'>"
+"</form>"
+"<div id='prg'>progress: 0%</div>"
+"<script>"
+"  $('form').submit(function(e){"
+"    e.preventDefault();"
+"    var form = $('#upload_form')[0];"
+"    var data = new FormData(form);"
+"     $.ajax({"
+"      url: '/update',"
+"      type: 'POST',"
+"      data: data,"
+"      contentType: false,"
+"      processData:false,"
+"      xhr: function() {"
+"        var xhr = new window.XMLHttpRequest();"
+"        xhr.upload.addEventListener('progress', function(evt) {"
+"          if (evt.lengthComputable) {"
+"            var per = evt.loaded / evt.total;"
+"            $('#prg').html('progress: ' + Math.round(per*100) + '%');"
+"          }"
+"        }, false);"
+"        return xhr;"
+"      },"
+"      success:function(d, s) {"
+"        console.log('success!')"
+"      },"
+"      error: function (a, b, c) {"
+"      }"
+"    });"
+"  });"
+"</script>";
 
 int status = WL_IDLE_STATUS;
-WiFiServer server(80);
 
+WebServer server(80);
 LiquidCrystal_I2C lcd(0x27, 16, 4);
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -282,34 +319,40 @@ bool sendMessageToAWS(const char* message)
 }
 
 bool setupOta() {
-  if (!internetIsUp) return false;
-  ArduinoOTA
-    .onStart([]() {
-      String type;
-      if (ArduinoOTA.getCommand() == U_FLASH)
-        type = "sketch";
-      else // U_SPIFFS
-        type = "filesystem";
-
-      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-      Serial.println("Start updating " + type);
-    })
-    .onEnd([]() {
-      Serial.println("\nEnd");
-    })
-    .onProgress([](unsigned int progress, unsigned int total) {
-      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-    })
-    .onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
-    });
-
-  ArduinoOTA.begin();
+  server.on("/", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/html", "poop");
+  });
+  server.on("/upgrade", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/html", upgradeHtml);
+  });
+  /*handling uploading firmware file */
+  server.on("/update", HTTP_POST, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart();
+  }, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      /* flashing firmware to ESP*/
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) { //true to set the size to the current progress
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+  server.begin();
 }
 
 bool restartInternetServices() {
@@ -916,64 +959,65 @@ void loop() {
   }
 
   // This is just to listen for incoming http queries
-  WiFiClient client = server.available();
-  if (client) {
-    Serial.println("Local http request received.");
-    String curLine = "";
-    httpCurrentMillis = httpLastMillis = millis();
-    httpElapsedMillis = 0;
-    while (client.connected() && (httpElapsedMillis < HTTP_INCOMING_REQ_TIMEOUT)) {
-      httpCurrentMillis = millis();
-      httpElapsedMillis += httpCurrentMillis - httpLastMillis;
-      httpLastMillis = httpCurrentMillis;
-      if (client.available()) {
-        char c = client.read();
-        if (c == '\n') {
-          if (curLine.length() == 0) {
-            // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
-            client.print("<!DOCTYPE html><html><head><title>Temperatures</title></head><body><p style=\"font-size:30px\">");
+  server.handleClient();
+  // WiFiClient client = server.available();
+  // if (client) {
+  //   Serial.println("Local http request received.");
+  //   String curLine = "";
+  //   httpCurrentMillis = httpLastMillis = millis();
+  //   httpElapsedMillis = 0;
+  //   while (client.connected() && (httpElapsedMillis < HTTP_INCOMING_REQ_TIMEOUT)) {
+  //     httpCurrentMillis = millis();
+  //     httpElapsedMillis += httpCurrentMillis - httpLastMillis;
+  //     httpLastMillis = httpCurrentMillis;
+  //     if (client.available()) {
+  //       char c = client.read();
+  //       if (c == '\n') {
+  //         if (curLine.length() == 0) {
+  //           // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
+  //           client.print("<!DOCTYPE html><html><head><title>Temperatures</title></head><body><p style=\"font-size:30px\">");
 
-            // Show the water sensors
-            for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-              // sprintf() does not support %f on arduino, so we have to convert the temperature
-              // to a string first, and pass the string into sprintf().
-              if (!sensorMap[i].ambient) {
-                dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-                sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
-                client.print(httpStr);
-              }
-            }
-            client.print("</br>");
+  //           // Show the water sensors
+  //           for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+  //             // sprintf() does not support %f on arduino, so we have to convert the temperature
+  //             // to a string first, and pass the string into sprintf().
+  //             if (!sensorMap[i].ambient) {
+  //               dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
+  //               sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
+  //               client.print(httpStr);
+  //             }
+  //           }
+  //           client.print("</br>");
 
-            // Show the ambient sensor
-            for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-              // sprintf() does not support %f on arduino, so we have to convert the temperature
-              // to a string first, and pass the string into sprintf().
-              if (sensorMap[i].ambient) {
-                dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-                sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
-                client.print(httpStr);
-              }
-            }
-            client.print("</br>");
+  //           // Show the ambient sensor
+  //           for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+  //             // sprintf() does not support %f on arduino, so we have to convert the temperature
+  //             // to a string first, and pass the string into sprintf().
+  //             if (sensorMap[i].ambient) {
+  //               dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
+  //               sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
+  //               client.print(httpStr);
+  //             }
+  //           }
+  //           client.print("</br>");
 
-            // Show pump state
-            sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
-            client.print(httpStr);
+  //           // Show pump state
+  //           sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
+  //           client.print(httpStr);
             
-            client.print("</p></body></html>");
-            Serial.println("Response sent.");
-            break;
-          } else {
-            curLine = "";
-          }
-        } else if(c != '\r') {
-          curLine += c;
-        }
-      }
-    }
-    if (httpElapsedMillis >= HTTP_INCOMING_REQ_TIMEOUT) Serial.println("\nHTTP request timed out. Getting on with life.");
-    client.stop();
-  }
+  //           client.print("</p></body></html>");
+  //           Serial.println("Response sent.");
+  //           break;
+  //         } else {
+  //           curLine = "";
+  //         }
+  //       } else if(c != '\r') {
+  //         curLine += c;
+  //       }
+  //     }
+  //   }
+  //   if (httpElapsedMillis >= HTTP_INCOMING_REQ_TIMEOUT) Serial.println("\nHTTP request timed out. Getting on with life.");
+  //   client.stop();
+  // }
 }
 #endif
