@@ -86,6 +86,8 @@ IPAddress localIP;
 unsigned long lcdTimeoutCounter = 0;
 float trustedTemp;
 char httpStr[256];
+#define SYS_STATUS_PAGE_STR_LEN 512
+char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
 
@@ -318,10 +320,50 @@ bool sendMessageToAWS(const char* message)
   return ret;
 }
 
+char* getSystemStatus() {
+
+  // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
+  String html = "<!DOCTYPE html><html><head><title>Temperatures</title></head><body><p style=\"font-size:36px\">";
+
+  // Show the water sensors
+  for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+    // sprintf() does not support %f on arduino, so we have to convert the temperature
+    // to a string first, and pass the string into sprintf().
+    if (!sensorMap[i].ambient) {
+      dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
+      sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
+      html += httpStr;
+    }
+  }
+  html += "</br>";
+  
+  // Show the ambient sensor
+  for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
+    // sprintf() does not support %f on arduino, so we have to convert the temperature
+    // to a string first, and pass the string into sprintf().
+    if (sensorMap[i].ambient) {
+      dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
+      sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
+      html += httpStr;
+    }
+  }
+  html += "</br>";
+
+  // Show pump state
+  sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
+  html += httpStr;
+  
+  html += "</p></body></html>";
+
+  memset(systemStatusPageStr, 0, SYS_STATUS_PAGE_STR_LEN);
+  html.toCharArray(systemStatusPageStr, html.length());
+  return systemStatusPageStr;
+}
+
 bool setupOta() {
   server.on("/", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
-    server.send(200, "text/html", "poop");
+    server.send(200, "text/html", getSystemStatus());
   });
   server.on("/upgrade", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
@@ -960,64 +1002,5 @@ void loop() {
 
   // This is just to listen for incoming http queries
   server.handleClient();
-  // WiFiClient client = server.available();
-  // if (client) {
-  //   Serial.println("Local http request received.");
-  //   String curLine = "";
-  //   httpCurrentMillis = httpLastMillis = millis();
-  //   httpElapsedMillis = 0;
-  //   while (client.connected() && (httpElapsedMillis < HTTP_INCOMING_REQ_TIMEOUT)) {
-  //     httpCurrentMillis = millis();
-  //     httpElapsedMillis += httpCurrentMillis - httpLastMillis;
-  //     httpLastMillis = httpCurrentMillis;
-  //     if (client.available()) {
-  //       char c = client.read();
-  //       if (c == '\n') {
-  //         if (curLine.length() == 0) {
-  //           // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
-  //           client.print("<!DOCTYPE html><html><head><title>Temperatures</title></head><body><p style=\"font-size:30px\">");
-
-  //           // Show the water sensors
-  //           for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-  //             // sprintf() does not support %f on arduino, so we have to convert the temperature
-  //             // to a string first, and pass the string into sprintf().
-  //             if (!sensorMap[i].ambient) {
-  //               dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-  //               sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
-  //               client.print(httpStr);
-  //             }
-  //           }
-  //           client.print("</br>");
-
-  //           // Show the ambient sensor
-  //           for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-  //             // sprintf() does not support %f on arduino, so we have to convert the temperature
-  //             // to a string first, and pass the string into sprintf().
-  //             if (sensorMap[i].ambient) {
-  //               dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-  //               sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
-  //               client.print(httpStr);
-  //             }
-  //           }
-  //           client.print("</br>");
-
-  //           // Show pump state
-  //           sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
-  //           client.print(httpStr);
-            
-  //           client.print("</p></body></html>");
-  //           Serial.println("Response sent.");
-  //           break;
-  //         } else {
-  //           curLine = "";
-  //         }
-  //       } else if(c != '\r') {
-  //         curLine += c;
-  //       }
-  //     }
-  //   }
-  //   if (httpElapsedMillis >= HTTP_INCOMING_REQ_TIMEOUT) Serial.println("\nHTTP request timed out. Getting on with life.");
-  //   client.stop();
-  // }
 }
 #endif
