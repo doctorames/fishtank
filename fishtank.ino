@@ -15,9 +15,10 @@
 #ifndef TEST_CODE
 
 #define DEBUG 0
-#define PRODUCTION_UNIT 1
+#define PRODUCTION_UNIT 0
+#define AT_PEEPAWS 1
 
-#if PRODUCTION_UNIT
+#if AT_PEEPAWS
 char ssid[] = "ATT4meZ5qR";
 char pass[] = "7xj%4%82sxz5";
 #else
@@ -136,6 +137,9 @@ bool extremeHighTempAlertSent = false;
 char* upgradeHtml = 
 "<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></script>"
 "<form method='POST' action='#' enctype='multipart/form-data' id='upload_form'>"
+#if !PRODUCTION_UNIT
+  "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
+#endif
 "  <input type='file' name='update'>"
 "  <input type='submit' value='Update'>"
 "</form>"
@@ -315,6 +319,9 @@ char* getSystemStatus() {
 
   // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
   String html = "<!DOCTYPE html><html><head><title>Temperatures</title></head><body><p style=\"font-size:36px\">";
+#if !PRODUCTION_UNIT
+  html += "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
+#endif
 
   // Show the water sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
@@ -646,6 +653,7 @@ void setup() {
   attachInterrupt(START_BUTTON, PbVector, FALLING);
 
   pinMode(PUMP_RELAY, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
 
   Serial.println("Starting main program loop...");
   Serial.println();
@@ -928,6 +936,7 @@ void loop() {
       // Turn it on.
       Serial.println("Turning on pump");
       digitalWrite(PUMP_RELAY, HIGH);
+      digitalWrite(LED_BUILTIN, HIGH);
       pumpIsOn = true;
 
       // We are now in a correction. Reset the timer.
@@ -952,6 +961,7 @@ void loop() {
       // Unless you want boiled tilapia for dinner, turn it off.
       Serial.println("Turning off pump");
       digitalWrite(PUMP_RELAY, LOW);
+      digitalWrite(LED_BUILTIN, LOW);
       pumpIsOn = false;
 
       // We are now in a correction. Reset the timer.
