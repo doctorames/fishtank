@@ -1,20 +1,13 @@
 #include <WiFi.h>
-#include <ESPmDNS.h>
-#include <WiFiUdp.h>
-#include <ArduinoOTA.h>
 #include <rom/rtc.h>
-
 #include <WiFiClientSecure.h>
 #include <MQTTClient.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
-
 #include <WebServer.h>
 #include <Update.h>
-
 //#include <OneWire.h>  <-- OneWire.h is already included in DallasTemperature.h
 #include <DallasTemperature.h>
-#include <SPI.h>
 #include <LiquidCrystal_I2C.h>
 
 #include "certs.h"
@@ -176,8 +169,6 @@ char* upgradeHtml =
 "    });"
 "  });"
 "</script>";
-
-int status = WL_IDLE_STATUS;
 
 WebServer server(80);
 LiquidCrystal_I2C lcd(0x27, 16, 4);
@@ -471,11 +462,12 @@ void IRAM_ATTR PbVector() {
   lastInterruptTime = interruptTime;
 }
 
+#if DEBUG
 bool okgo = false;
 void IRAM_ATTR WaitVector() {
   okgo = true;
 }
-
+#endif
 
 
 
@@ -687,8 +679,6 @@ void setup() {
 
 
 void loop() {
-
-  ArduinoOTA.handle();
   sensors.requestTemperatures();
 
   if (pendingAlert) {
