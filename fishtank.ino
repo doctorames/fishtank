@@ -22,7 +22,7 @@
 #ifndef TEST_CODE
 
 #define DEBUG 0
-#define PRODUCTION_UNIT 0
+#define PRODUCTION_UNIT 1
 
 #if PRODUCTION_UNIT
 char ssid[] = "ATT4meZ5qR";
@@ -56,7 +56,7 @@ char pass[] = "72+wwi7w6b=q";
 
 // Temperature set points
 #define MAX_ACCEPTABLE_TEMPERATURE_DELTA 4.0  // If a sensor's average drift from the others exceeds this amount, it will be blacklisted
-#define TEMP_LOWER_TRIGGER 60.00              // Turn on the pump when temperature is less than this amount
+#define TEMP_LOWER_TRIGGER 70.00              // Turn on the pump when temperature is less than this amount
 #define TEMP_UPPER_TRIGGER 75.00              // Turn off the pump when temperature is more than this amount
 #define TEMP_ABSOLUTE_LOWER  50.00            // Send an alert if the temperature ever drops below this amount
 #define TEMP_ABSOLUTE_UPPER  85.00            // Send an alert if the temperature ever rises above this amount
