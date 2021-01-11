@@ -16,7 +16,7 @@
 #ifndef TEST_CODE
 
 #define DEBUG 0
-#define PRODUCTION_UNIT 0
+#define PRODUCTION_UNIT 1
 #define AT_PEEPAWS 1
 
 #if AT_PEEPAWS
