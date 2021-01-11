@@ -9,6 +9,7 @@
 //#include <OneWire.h>  <-- OneWire.h is already included in DallasTemperature.h
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
+#include "time.h"
 
 #include "certs.h"
 
@@ -74,6 +75,12 @@ char pass[] = "72+wwi7w6b=q";
 WiFiClientSecure net = WiFiClientSecure();
 MQTTClient client = MQTTClient(512);
 
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = -21600;
+const int   daylightOffset_sec = 3600;
+struct tm timeinfo_boot;
+struct tm timeinfo_pumpState;
+
 bool internetIsUp = false;  // todo: make logic to deal with failed connectivity
 bool lcdIsOn = false;
 IPAddress localIP;
@@ -138,7 +145,7 @@ char* upgradeHtml =
 "<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></script>"
 "<form method='POST' action='#' enctype='multipart/form-data' id='upload_form'>"
 #if !PRODUCTION_UNIT
-  "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
+  "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>"
 #endif
 "  <input type='file' name='update'>"
 "  <input type='submit' value='Update'>"
@@ -315,6 +322,21 @@ bool sendMessageToAWS(const char* message)
   return ret;
 }
 
+// Returns a timestamp string in the format:
+// mm/dd/yyyy h:mm:ss AM|PM
+void getDateTimeMyWay(tm* time, char* ptr, int length) {
+  
+  memset(ptr, 0, length);
+  sprintf(ptr, "%d/%d/%d %d:%02d:%02d %s",
+  time->tm_mon+1,
+  time->tm_mday,
+  time->tm_year+1900,
+  time->tm_hour > 12 ? time->tm_hour - 12 : time->tm_hour,
+  time->tm_min,
+  time->tm_sec,
+  time->tm_hour > 11 ? "PM" : "AM");
+}
+
 char* getSystemStatus() {
 
   // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
@@ -322,6 +344,16 @@ char* getSystemStatus() {
 #if !PRODUCTION_UNIT
   html += "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
 #endif
+
+  char dateTime[24];
+  struct tm ti;
+  getLocalTime(&ti);
+  char currentTime[40];
+  memset(currentTime, 0, 40);
+  getDateTimeMyWay(&ti, dateTime, 24);
+  sprintf(currentTime, "Readings as of:  %s", dateTime);
+  html += currentTime;
+  html+= "</br></br>";
 
   // Show the water sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
@@ -348,7 +380,11 @@ char* getSystemStatus() {
   html += "</br>";
 
   // Show pump state
-  sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
+  getDateTimeMyWay(&timeinfo_pumpState, dateTime, 24);
+  sprintf(httpStr, "Pump has been %s since %s   (%d minutes)</br>",
+  pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>",
+  dateTime,
+  ((millis() - currentPumpStateStart) / 1000) / 60);
   html += httpStr;
   
   html += "</p></body></html>";
@@ -529,6 +565,11 @@ void setup() {
     internetIsUp = false;
   } else {
     internetIsUp = true;
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    getLocalTime(&timeinfo_boot);
+    // Initialize pump state time to something.
+    // If the temperature is in range, then the code path to set the pump state time will not be followed.
+    memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
   }
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
@@ -941,6 +982,7 @@ void loop() {
 
       // We are now in a correction. Reset the timer.
       correctionTimerStart = millis();
+      getLocalTime(&timeinfo_pumpState);
       temperatureIsGood = false;
 
       // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
@@ -966,6 +1008,7 @@ void loop() {
 
       // We are now in a correction. Reset the timer.
       correctionTimerStart = millis();
+      getLocalTime(&timeinfo_pumpState);
       temperatureIsGood = false;
 
       // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
