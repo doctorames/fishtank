@@ -323,18 +323,17 @@ bool sendMessageToAWS(const char* message)
 }
 
 // Returns a timestamp string in the format:
-// mm/dd/yyyy h:mm:ss AM|PM
+// h:mm:ss AM|PM, mm/dd/yyyy
 void getDateTimeMyWay(tm* time, char* ptr, int length) {
-  
   memset(ptr, 0, length);
-  sprintf(ptr, "%d/%d/%d %d:%02d:%02d %s",
-  time->tm_mon+1,
-  time->tm_mday,
-  time->tm_year+1900,
+  sprintf(ptr, "%d:%02d:%02d %s, %d/%d/%d",
   time->tm_hour > 12 ? time->tm_hour - 12 : time->tm_hour,
   time->tm_min,
   time->tm_sec,
-  time->tm_hour > 11 ? "PM" : "AM");
+  time->tm_hour > 11 ? "PM" : "AM",
+  time->tm_mon+1,
+  time->tm_mday,
+  time->tm_year+1900);
 }
 
 // Converts milliseconds into natural language
