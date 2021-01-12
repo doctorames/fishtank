@@ -337,6 +337,29 @@ void getDateTimeMyWay(tm* time, char* ptr, int length) {
   time->tm_hour > 11 ? "PM" : "AM");
 }
 
+// Converts milliseconds into natural language
+void millisToHoursMinutes(unsigned long milliseconds, char* str, int length) {
+  
+  uint seconds = milliseconds / 1000;
+  memset(str, 0, length);
+
+  if (seconds <= 60) {
+    sprintf(str, "%d second%s", seconds, seconds == 1 ? "" : "s");
+    return;
+  }
+  uint minutes = seconds / 60;
+  if (minutes <= 60) {
+    sprintf(str, "%d minute%s", minutes, minutes == 1 ? "" : "s");
+    return;
+  }
+  uint hours = minutes / 60;
+  minutes -= hours * 60;
+  if (minutes == 0)
+    sprintf(str, "%d hour%s", hours, hours > 1 ? "s" : "");
+  else
+    sprintf(str, "%d hour%s and %d minute%s", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+}
+
 char* getSystemStatus() {
 
   // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
@@ -381,10 +404,11 @@ char* getSystemStatus() {
 
   // Show pump state
   getDateTimeMyWay(&timeinfo_pumpState, dateTime, 24);
-  sprintf(httpStr, "Pump has been %s since %s   (%d minutes)</br>",
+  millisToHoursMinutes(millis() - currentPumpStateStart, currentTime, 40);
+  sprintf(httpStr, "Pump has been %s for %s   (since %s)</br>",
   pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>",
-  dateTime,
-  ((millis() - currentPumpStateStart) / 1000) / 60);
+  currentTime,
+  dateTime);
   html += httpStr;
   
   html += "</p></body></html>";
