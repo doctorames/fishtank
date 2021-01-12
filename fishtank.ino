@@ -131,6 +131,7 @@ bool pumpIsOn = false;
 bool temperatureIsGood = true;
 bool tempOutOfRangeForTooLong = false;
 
+unsigned long systemBootTime = 0;
 int correctionTimer = 0;
 int correctionTimerStart = 0;
 unsigned long currentPumpStateStart = 0;
@@ -409,7 +410,19 @@ char* getSystemStatus() {
   currentTime,
   dateTime);
   html += httpStr;
+  html += "</br>";
+
+  // Show system uptime
+  getDateTimeMyWay(&timeinfo_boot, dateTime, 24);
+  html += "<span style=\"font-size:30px\">";
+  sprintf(httpStr, "Last boot:  %s</br>", dateTime);
+  html += httpStr;
+  millisToHoursMinutes(millis() - systemBootTime, currentTime, 40);
+  sprintf(httpStr, "System uptime:  %s</br>", currentTime);
+  html += httpStr;
+  html += "</span>";
   
+  // Close it off
   html += "</p></body></html>";
 
   memset(systemStatusPageStr, 0, SYS_STATUS_PAGE_STR_LEN);
@@ -590,6 +603,7 @@ void setup() {
     internetIsUp = true;
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     getLocalTime(&timeinfo_boot);
+    systemBootTime = millis();
     // Initialize pump state time to something.
     // If the temperature is in range, then the code path to set the pump state time will not be followed.
     memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
