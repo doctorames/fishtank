@@ -338,26 +338,40 @@ void getDateTimeMyWay(tm* time, char* ptr, int length) {
 }
 
 // Converts milliseconds into natural language
-void millisToHoursMinutes(unsigned long milliseconds, char* str, int length) {
+void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length) {
   
   uint seconds = milliseconds / 1000;
   memset(str, 0, length);
 
   if (seconds <= 60) {
+    // It's only been a few seconds
     sprintf(str, "%d second%s", seconds, seconds == 1 ? "" : "s");
     return;
   }
   uint minutes = seconds / 60;
   if (minutes <= 60) {
+    // It's only been a few minutes
     sprintf(str, "%d minute%s", minutes, minutes == 1 ? "" : "s");
     return;
   }
   uint hours = minutes / 60;
   minutes -= hours * 60;
+  if (hours <= 24) {
+    // It's only been a few hours
+    if (minutes == 0)
+      sprintf(str, "%d hour%s", hours, hours > 1 ? "s" : "");
+    else
+      sprintf(str, "%d hour%s and %d minute%s", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+    return;
+  }
+
+  // It's been more than a day
+  uint days = hours / 24;
+  hours -= days * 24;
   if (minutes == 0)
-    sprintf(str, "%d hour%s", hours, hours > 1 ? "s" : "");
+      sprintf(str, "%d day%s and %d hour%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "");
   else
-    sprintf(str, "%d hour%s and %d minute%s", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
 }
 
 char* getSystemStatus() {
@@ -404,7 +418,7 @@ char* getSystemStatus() {
 
   // Show pump state
   getDateTimeMyWay(&timeinfo_pumpState, dateTime, 24);
-  millisToHoursMinutes(millis() - currentPumpStateStart, currentTime, 40);
+  millisToDaysHoursMinutes(millis() - currentPumpStateStart, currentTime, 40);
   sprintf(httpStr, "Pump has been %s for %s   (since %s)</br>",
   pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>",
   currentTime,
@@ -417,7 +431,7 @@ char* getSystemStatus() {
   html += "<span style=\"font-size:30px\">";
   sprintf(httpStr, "Last boot:  %s</br>", dateTime);
   html += httpStr;
-  millisToHoursMinutes(millis() - systemBootTime, currentTime, 40);
+  millisToDaysHoursMinutes(millis() - systemBootTime, currentTime, 40);
   sprintf(httpStr, "System uptime:  %s</br>", currentTime);
   html += httpStr;
   html += "</span>";
