@@ -9,13 +9,14 @@
 //#include <OneWire.h>  <-- OneWire.h is already included in DallasTemperature.h
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
+#include "time.h"
 
 #include "certs.h"
 
 #ifndef TEST_CODE
 
 #define DEBUG 0
-#define PRODUCTION_UNIT 0
+#define PRODUCTION_UNIT 1
 #define AT_PEEPAWS 1
 
 #if AT_PEEPAWS
@@ -74,6 +75,12 @@ char pass[] = "72+wwi7w6b=q";
 WiFiClientSecure net = WiFiClientSecure();
 MQTTClient client = MQTTClient(512);
 
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = -21600;
+const int   daylightOffset_sec = 3600;
+struct tm timeinfo_boot;
+struct tm timeinfo_pumpState;
+
 bool internetIsUp = false;  // todo: make logic to deal with failed connectivity
 bool lcdIsOn = false;
 IPAddress localIP;
@@ -124,6 +131,7 @@ bool pumpIsOn = false;
 bool temperatureIsGood = true;
 bool tempOutOfRangeForTooLong = false;
 
+unsigned long systemBootTime = 0;
 int correctionTimer = 0;
 int correctionTimerStart = 0;
 unsigned long currentPumpStateStart = 0;
@@ -138,7 +146,7 @@ char* upgradeHtml =
 "<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></script>"
 "<form method='POST' action='#' enctype='multipart/form-data' id='upload_form'>"
 #if !PRODUCTION_UNIT
-  "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
+  "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>"
 #endif
 "  <input type='file' name='update'>"
 "  <input type='submit' value='Update'>"
@@ -315,6 +323,57 @@ bool sendMessageToAWS(const char* message)
   return ret;
 }
 
+// Returns a timestamp string in the format:
+// h:mm:ss AM|PM, mm/dd/yyyy
+void getDateTimeMyWay(tm* time, char* ptr, int length) {
+  memset(ptr, 0, length);
+  sprintf(ptr, "%d:%02d:%02d %s, %d/%d/%d",
+  time->tm_hour > 12 ? time->tm_hour - 12 : time->tm_hour,
+  time->tm_min,
+  time->tm_sec,
+  time->tm_hour > 11 ? "PM" : "AM",
+  time->tm_mon+1,
+  time->tm_mday,
+  time->tm_year+1900);
+}
+
+// Converts milliseconds into natural language
+void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length) {
+  
+  uint seconds = milliseconds / 1000;
+  memset(str, 0, length);
+
+  if (seconds <= 60) {
+    // It's only been a few seconds
+    sprintf(str, "%d second%s", seconds, seconds == 1 ? "" : "s");
+    return;
+  }
+  uint minutes = seconds / 60;
+  if (minutes <= 60) {
+    // It's only been a few minutes
+    sprintf(str, "%d minute%s", minutes, minutes == 1 ? "" : "s");
+    return;
+  }
+  uint hours = minutes / 60;
+  minutes -= hours * 60;
+  if (hours <= 24) {
+    // It's only been a few hours
+    if (minutes == 0)
+      sprintf(str, "%d hour%s", hours, hours > 1 ? "s" : "");
+    else
+      sprintf(str, "%d hour%s and %d minute%s", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+    return;
+  }
+
+  // It's been more than a day
+  uint days = hours / 24;
+  hours -= days * 24;
+  if (minutes == 0)
+      sprintf(str, "%d day%s and %d hour%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "");
+  else
+    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+}
+
 char* getSystemStatus() {
 
   // Pardon the html mess. Gotta tell the browser to not make the text super tiny.
@@ -322,6 +381,16 @@ char* getSystemStatus() {
 #if !PRODUCTION_UNIT
   html += "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
 #endif
+
+  char dateTime[24];
+  struct tm ti;
+  getLocalTime(&ti);
+  char currentTime[40];
+  memset(currentTime, 0, 40);
+  getDateTimeMyWay(&ti, dateTime, 24);
+  sprintf(currentTime, "Readings as of:  %s", dateTime);
+  html += currentTime;
+  html+= "</br></br>";
 
   // Show the water sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
@@ -348,9 +417,26 @@ char* getSystemStatus() {
   html += "</br>";
 
   // Show pump state
-  sprintf(httpStr, "Pump has been %s for %d minutes</br>", pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>", ((millis() - currentPumpStateStart) / 1000) / 60);
+  getDateTimeMyWay(&timeinfo_pumpState, dateTime, 24);
+  millisToDaysHoursMinutes(millis() - currentPumpStateStart, currentTime, 40);
+  sprintf(httpStr, "Pump has been %s for %s   (since %s)</br>",
+  pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>",
+  currentTime,
+  dateTime);
   html += httpStr;
+  html += "</br>";
+
+  // Show system uptime
+  getDateTimeMyWay(&timeinfo_boot, dateTime, 24);
+  html += "<span style=\"font-size:30px\">";
+  sprintf(httpStr, "Last boot:  %s</br>", dateTime);
+  html += httpStr;
+  millisToDaysHoursMinutes(millis() - systemBootTime, currentTime, 40);
+  sprintf(httpStr, "System uptime:  %s</br>", currentTime);
+  html += httpStr;
+  html += "</span>";
   
+  // Close it off
   html += "</p></body></html>";
 
   memset(systemStatusPageStr, 0, SYS_STATUS_PAGE_STR_LEN);
@@ -529,6 +615,12 @@ void setup() {
     internetIsUp = false;
   } else {
     internetIsUp = true;
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    getLocalTime(&timeinfo_boot);
+    systemBootTime = millis();
+    // Initialize pump state time to something.
+    // If the temperature is in range, then the code path to set the pump state time will not be followed.
+    memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
   }
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
@@ -941,6 +1033,7 @@ void loop() {
 
       // We are now in a correction. Reset the timer.
       correctionTimerStart = millis();
+      getLocalTime(&timeinfo_pumpState);
       temperatureIsGood = false;
 
       // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
@@ -966,6 +1059,7 @@ void loop() {
 
       // We are now in a correction. Reset the timer.
       correctionTimerStart = millis();
+      getLocalTime(&timeinfo_pumpState);
       temperatureIsGood = false;
 
       // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
