@@ -31,8 +31,9 @@ char pass[] = "72+wwi7w6b=q";
 // char pass[] = "aaadaa001";
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
+#define NUMBER_OF_BOILER_SENSORS 1
 #define NUMBER_OF_WATER_SENSORS 3
-#define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_WATER_SENSORS)
+#define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_BOILER_SENSORS + NUMBER_OF_WATER_SENSORS)
 #define MILLISECONDS_IN_ONE_DAY  86400000u
 
 // GPIO pins
@@ -214,7 +215,8 @@ SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
   { 0xff, (byte)1, false, tank, {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
   { 0xff, (byte)2, false, tank, {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
   { 0xff, (byte)3, false, tank, {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
-  { 0xff, (byte)4, false, ambient,  {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}}  // orange (ambient)
+  { 0xff, (byte)4, false, ambient, {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}},  // orange
+  { 0xff, (byte)5, false, boiler,  {0x28, 0x90, 0x06, 0x07, 0xD6, 0x01, 0x3C, 0xA4}}  // brown
 };
 #endif
 
@@ -411,13 +413,13 @@ char* getSystemStatus() {
   }
   html += "</br>";
   
-  // Show the ambient sensor
+  // Show the ambient and boiler sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     // sprintf() does not support %f on arduino, so we have to convert the temperature
     // to a string first, and pass the string into sprintf().
-    if (sensorMap[i].location == ambient) {
+    if (sensorMap[i].location == ambient || sensorMap[i].location == boiler) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-      sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
+      sprintf(httpStr, "%s:  %s</br>", sensorMap[i].location == ambient ? "Ambient" : "Boiler", tempFloat);
       html += httpStr;
     }
   }
@@ -1030,7 +1032,7 @@ void loop() {
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
   if (trustedTemp <= TEMP_LOWER_TRIGGER) {
-    if (!pumpIsOn && boilerTemp > TEMP_BOILER_LOWER_TRIGGER) {
+    if (!pumpIsOn /*&& boilerTemp > TEMP_BOILER_LOWER_TRIGGER*/) {
       // We hit the lower trigger, and the pump is not on.
       // Turn it on.
       Serial.println("Turning on pump");
@@ -1055,7 +1057,7 @@ void loop() {
       extremeLowTempAlertPending = true;
       extremeLowTempAlertSent = false;
     }
-  } else if (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp < TEMP_BOILER_LOWER_TRIGGER) {
+  } else if (trustedTemp >= TEMP_UPPER_TRIGGER /*|| boilerTemp < TEMP_BOILER_LOWER_TRIGGER*/) {
     if (pumpIsOn) {
       // We hit the upper trigger, and the pump is on.
       // Unless you want boiled tilapia for dinner, turn it off.
