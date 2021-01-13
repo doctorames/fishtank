@@ -188,27 +188,33 @@ LiquidCrystal_I2C lcd(0x27, 16, 4);
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
+typedef enum {
+  tank,
+  ambient,
+  boiler
+} SensorLocation;
+
 typedef struct _SensorInfo {
-  int           busIndex;  // The index of the sensor as seen by DallasTemperature library
-  byte          stickerId; // The number we assign to the sensor when we physically put a sticker on it
-  bool          blacklisted;
-  bool          ambient;
-  DeviceAddress address;   // The factory-assigned ID of the sensor (we have no say in this)
+  int            busIndex;  // The index of the sensor as seen by DallasTemperature library
+  byte           stickerId; // The number we assign to the sensor when we physically put a sticker on it
+  bool           blacklisted;
+  SensorLocation location;
+  DeviceAddress  address;   // The factory-assigned ID of the sensor (we have no say in this)
 } SensorInfo;
 
 #if PRODUCTION_UNIT
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
-  { 0xff, (byte)1, false, false, {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
-  { 0xff, (byte)2, false, false, {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
-  { 0xff, (byte)3, false, false, {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
-  { 0xff, (byte)4, false, true,  {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}} // ambient sensor
+  { 0xff, (byte)1, false, tank, {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
+  { 0xff, (byte)2, false, tank, {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
+  { 0xff, (byte)3, false, tank, {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
+  { 0xff, (byte)4, false, ambient,  {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}} // ambient sensor
 };
 #else
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
-  { 0xff, (byte)1, false, false, {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
-  { 0xff, (byte)2, false, false, {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
-  { 0xff, (byte)3, false, false, {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
-  { 0xff, (byte)4, false, true,  {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}}  // orange (ambient)
+  { 0xff, (byte)1, false, tank, {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
+  { 0xff, (byte)2, false, tank, {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
+  { 0xff, (byte)3, false, tank, {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
+  { 0xff, (byte)4, false, ambient,  {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}}  // orange (ambient)
 };
 #endif
 
@@ -397,7 +403,7 @@ char* getSystemStatus() {
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     // sprintf() does not support %f on arduino, so we have to convert the temperature
     // to a string first, and pass the string into sprintf().
-    if (!sensorMap[i].ambient) {
+    if (sensorMap[i].location == tank) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
       sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
       html += httpStr;
@@ -409,7 +415,7 @@ char* getSystemStatus() {
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     // sprintf() does not support %f on arduino, so we have to convert the temperature
     // to a string first, and pass the string into sprintf().
-    if (sensorMap[i].ambient) {
+    if (sensorMap[i].location == ambient) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
       sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
       html += httpStr;
@@ -662,7 +668,7 @@ void setup() {
   DeviceAddress addr;
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     if (sensors.getAddress(addr, i)) {
-      if (!sensorMap[i].ambient) senorsInitialized = true; // Only set this true if we found a WATER sensor. Those are critical.
+      if (sensorMap[i].location == tank) senorsInitialized = true; // Only set this true if we found a WATER sensor. Those are critical.
       for (int j = 0; j < NUMBER_OF_SENSORS; j++) {
         if (compareAddresses(addr, sensorMap[j].address)) {
           // found a match
@@ -674,7 +680,7 @@ void setup() {
           Serial.print(sensorMap[j].busIndex);
           Serial.print(" ");
           Serial.println(sensors.getTempF(sensorMap[i].address));
-          if (!sensorMap[i].ambient) goodSensors++;
+          if (sensorMap[i].location == tank) goodSensors++;
           break;
         }//if
       }// for(j)
@@ -843,7 +849,7 @@ void loop() {
       lcd.print("Ambient Temp:");
       lcd.setCursor(0,1);
       for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-        if (sensorMap[i].ambient) {
+        if (sensorMap[i].location == ambient) {
           lcd.print(sensors.getTempF(sensorMap[i].address));
           break;
         }
@@ -863,7 +869,7 @@ void loop() {
     deltaHi = 0;
     deltaLo = 999;
     for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
-      if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+      if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
       temp = sensors.getTempF(sensorMap[i].address);
       if (temp < deltaLo) deltaLo = temp;
       if (temp > deltaHi) deltaHi = temp;
@@ -881,7 +887,7 @@ void loop() {
         int idx = 0;
         memset(lastTwoSensorIndecies, 0, sizeof(*lastTwoSensorIndecies) * 2);
         for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
-          if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+          if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
           if (idx++ == 0) {
             tempA = sensors.getTempF(sensorMap[i].address);
             lastTwoSensorIndecies[0] = i;
@@ -923,13 +929,13 @@ void loop() {
         // Find the outlier
         highestAverageDelta = 0;
         for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
-          if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+          if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
 
           runningAverageDelta = 0;
           tempA = sensors.getTempF(sensorMap[i].address);
           for (int j = 0; j < NUMBER_OF_SENSORS; j++) {
             if (j == i) continue; // Don't compare a sensor to itself!
-            if (sensorMap[j].blacklisted || sensorMap[j].ambient) continue;
+            if (sensorMap[j].blacklisted || sensorMap[j].location != tank) continue;
             tempB = sensors.getTempF(sensorMap[j].address);
             runningAverageDelta += abs(tempA - tempB);
           }
@@ -975,7 +981,7 @@ void loop() {
     if (!oneSensorNagSent) {
       // Send it
       int oneSensor = 0;
-      for (int i = 0; i < NUMBER_OF_SENSORS; i++) if (!sensorMap[i].blacklisted && !sensorMap[i].ambient) { oneSensor = sensorMap[i].stickerId; break; }
+      for (int i = 0; i < NUMBER_OF_SENSORS; i++) if (!sensorMap[i].blacklisted && sensorMap[i].location == tank) { oneSensor = sensorMap[i].stickerId; break; }
       String oneSensorTemp = String(trustedTemp);
       sprintf(charErrorMessage, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
       if (oneSensorNagSent = sendMessageToAWS(charErrorMessage)) {
@@ -998,7 +1004,7 @@ void loop() {
     // Now that we have some idea of what we can trust,
     // go ahead and take the reading of the first one (that's trusted)
     // as the temperature.
-    if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+    if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
     trustedTemp = sensors.getTempF(sensorMap[i].address);
     trustedSensor = sensorMap[i].stickerId;
     break;
