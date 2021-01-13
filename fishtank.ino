@@ -56,6 +56,7 @@ char pass[] = "72+wwi7w6b=q";
 #define TEMP_ABSOLUTE_LOWER  50.00            // Send an alert if the temperature ever drops below this amount
 #define TEMP_ABSOLUTE_UPPER  85.00            // Send an alert if the temperature ever rises above this amount
 #define TEMP_SENSOR_DISCONNECTED -196.60f     // The sensor library will return this specific reading for a sensor that becomes unresponsive
+#define TEMP_BOILER_LOWER_TRIGGER  90.00f     // If the boiler gets below this temp, cut off the pump
 
 // Time-outs and retry thresholds
 #define MAX_WIFI_ATTEMPTS   120               // Reboot if we can't connect after this many attempts
@@ -1023,7 +1024,7 @@ void loop() {
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
   if (trustedTemp <= TEMP_LOWER_TRIGGER) {
-    if (!pumpIsOn) {
+    if (!pumpIsOn && boilerTemp > TEMP_BOILER_LOWER_TRIGGER) {
       // We hit the lower trigger, and the pump is not on.
       // Turn it on.
       Serial.println("Turning on pump");
@@ -1048,7 +1049,7 @@ void loop() {
       extremeLowTempAlertPending = true;
       extremeLowTempAlertSent = false;
     }
-  } else if (trustedTemp >= TEMP_UPPER_TRIGGER) {
+  } else if (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp < TEMP_BOILER_LOWER_TRIGGER) {
     if (pumpIsOn) {
       // We hit the upper trigger, and the pump is on.
       // Unless you want boiled tilapia for dinner, turn it off.
