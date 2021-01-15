@@ -39,8 +39,7 @@ char pass[] = "72+wwi7w6b=q";
 // GPIO pins
 #define ONE_WIRE_BUS 16
 #define PUMP_RELAY 19
-#define START_BUTTON 17
-#define PUSH_BUTTON 5
+#define PUSH_BUTTON 17
 #define ALERT_LED LED_BUILTIN
 
 // EEPROM bytes
@@ -88,6 +87,7 @@ bool lcdIsOn = false;
 IPAddress localIP;
 unsigned long lcdTimeoutCounter = 0;
 float trustedTemp;
+float boilerTemp;
 char httpStr[256];
 #define SYS_STATUS_PAGE_STR_LEN 512
 char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
@@ -319,14 +319,7 @@ bool sendMessageToAWS(const char* message)
   Serial.println("Publishing message to AWS...");
   char jsonBuffer[512];
   serializeJson(jsonDoc, jsonBuffer);
-
-  // Serial.print(jsonBuffer);
-
   bool ret = client.publish(AWS_IOT_TOPIC, jsonBuffer);
-
-  Serial.print("\nJSON Status: ");
-  Serial.println(ret);
-
   client.disconnect();
 
   return ret;
@@ -733,10 +726,10 @@ void setup() {
   setupOta();
 
   // Set the push button for GPIO17
-  pinMode(START_BUTTON, INPUT_PULLUP);
+  pinMode(PUSH_BUTTON, INPUT_PULLUP);
 
 #if DEBUG
-  attachInterrupt(START_BUTTON, WaitVector, FALLING);
+  attachInterrupt(PUSH_BUTTON, WaitVector, FALLING);
 
   Serial.print("Waiting");
   while(!okgo) {
@@ -747,11 +740,11 @@ void setup() {
   Serial.println("GO!");
 
   // todo: remove for production
-  detachInterrupt(START_BUTTON);
+  detachInterrupt(PUSH_BUTTON);
 #endif
 
   // Set the push button for GPIO17
-  attachInterrupt(START_BUTTON, PbVector, FALLING);
+  attachInterrupt(PUSH_BUTTON, PbVector, FALLING);
 
   pinMode(PUMP_RELAY, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
@@ -794,7 +787,6 @@ void loop() {
     // If sendMessageToAWS fails, set pendingAlert to true so it keeps trying.
     // Don't give up until the error gets out!
     Serial.println("Sending message to AWS:");
-    Serial.println(charErrorMessage);
     pendingAlert = !sendMessageToAWS(charErrorMessage);
     if (!pendingAlert) {
       // Alert sent successfully
@@ -812,7 +804,7 @@ void loop() {
         extremeHighTempAlertSent = true;
       }
     } else {
-      Serial.println("Message sent successfully.");
+      Serial.println("Message failed to send.");
     }
   }
 
@@ -1012,6 +1004,14 @@ void loop() {
     break;
   }
 
+  // Get the boiler temp
+  for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
+    if (sensorMap[i].location == boiler) {
+      boilerTemp = sensors.getTempF(sensorMap[i].address);
+      break;
+    }
+  }
+
   if (!temperatureIsGood) {
     // Temperature is out of range.
     // Rectification should be in progress, but increment the timer.
@@ -1032,8 +1032,8 @@ void loop() {
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
   if (trustedTemp <= TEMP_LOWER_TRIGGER) {
-    if (!pumpIsOn /*&& boilerTemp > TEMP_BOILER_LOWER_TRIGGER*/) {
-      // We hit the lower trigger, and the pump is not on.
+    if (!pumpIsOn && boilerTemp > TEMP_BOILER_LOWER_TRIGGER) {
+      // We hit the lower trigger, the pump is not on, and there's heat available from the boiler.
       // Turn it on.
       Serial.println("Turning on pump");
       digitalWrite(PUMP_RELAY, HIGH);
@@ -1057,11 +1057,12 @@ void loop() {
       extremeLowTempAlertPending = true;
       extremeLowTempAlertSent = false;
     }
-  } else if (trustedTemp >= TEMP_UPPER_TRIGGER /*|| boilerTemp < TEMP_BOILER_LOWER_TRIGGER*/) {
+  } else if (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp < TEMP_BOILER_LOWER_TRIGGER) {
     if (pumpIsOn) {
-      // We hit the upper trigger, and the pump is on.
+      // We hit the upper trigger, or the boiler is too cold, and the pump is on.
       // Unless you want boiled tilapia for dinner, turn it off.
-      Serial.println("Turning off pump");
+      if (trustedTemp >= TEMP_UPPER_TRIGGER) Serial.println("Turning off pump because the fish are nice and warm now");
+      if (boilerTemp < TEMP_BOILER_LOWER_TRIGGER) Serial.println("Turning off pump because there's not enough heat from the boiler");
       digitalWrite(PUMP_RELAY, LOW);
       digitalWrite(LED_BUILTIN, LOW);
       pumpIsOn = false;
@@ -1093,11 +1094,11 @@ void loop() {
     extremeHighTempAlertSent = false;
     extremeHighTempAlertPending = false;
     if (tempOutOfRangeForTooLong) {
-      // Looks like we had a close call, but things are god now.
+      // Looks like we had a close call, but things are good now.
       tempOutOfRangeForTooLong = false;
 
       String strRecoveredTemp = String(trustedTemp);
-      sprintf(charErrorMessage, "Whew! Looks like we're back in range again. Temperature is now %s\0", strRecoveredTemp.c_str());
+      sprintf(charErrorMessage, "Looks like we're back in range again. Temperature is now %s\0", strRecoveredTemp.c_str());
       pendingAlert = true;
       Serial.println(charErrorMessage);
     }
