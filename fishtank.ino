@@ -623,6 +623,7 @@ void setup() {
     // Initialize pump state time to something.
     // If the temperature is in range, then the code path to set the pump state time will not be followed.
     memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
+    setupOta();
   }
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
@@ -722,8 +723,6 @@ void setup() {
       Serial.println("Warning: Previously recovered from a sensor failure.");
     }
   }
-
-  setupOta();
 
   // Set the push button for GPIO17
   pinMode(PUSH_BUTTON, INPUT_PULLUP);
