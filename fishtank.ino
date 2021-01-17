@@ -56,7 +56,7 @@ char pass[] = "72+wwi7w6b=q";
 #define TEMP_ABSOLUTE_LOWER  50.00            // Send an alert if the temperature ever drops below this amount
 #define TEMP_ABSOLUTE_UPPER  85.00            // Send an alert if the temperature ever rises above this amount
 #define TEMP_SENSOR_DISCONNECTED -196.60f     // The sensor library will return this specific reading for a sensor that becomes unresponsive
-#define TEMP_BOILER_LOWER_TRIGGER  90.00f     // If the boiler gets below this temp, cut off the pump
+#define TEMP_BOILER_LOWER_TRIGGER  90.00      // If the boiler gets below this temp, cut off the pump
 
 // Time-outs and retry thresholds
 #define MAX_WIFI_ATTEMPTS   120               // Reboot if we can't connect after this many attempts
