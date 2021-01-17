@@ -13,8 +13,6 @@
 
 #include "certs.h"
 
-#ifndef TEST_CODE
-
 #define DEBUG 0
 #define PRODUCTION_UNIT 1
 #define AT_PEEPAWS 1
@@ -1106,4 +1104,3 @@ void loop() {
   // This is just to listen for incoming http queries
   server.handleClient();
 }
-#endif
