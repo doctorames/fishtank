@@ -1032,59 +1032,54 @@ void loop() {
 
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
-  if (trustedTemp <= TEMP_LOWER_TRIGGER) {
-    if (!pumpIsOn && boilerTemp > TEMP_BOILER_LOWER_TRIGGER) {
-      // We hit the lower trigger, the pump is not on, and there's heat available from the boiler.
-      // Turn it on.
-      Serial.println("Turning on pump");
-      digitalWrite(PUMP_RELAY, HIGH);
-      digitalWrite(LED_BUILTIN, HIGH);
-      pumpIsOn = true;
+  if (!pumpIsOn && trustedTemp <= TEMP_LOWER_TRIGGER && boilerTemp > TEMP_BOILER_LOWER_TRIGGER) {
+    // We hit the lower trigger, the pump is not on, and there's heat available from the boiler.
+    // Turn it on.
+    Serial.println("Turning on pump");
+    digitalWrite(PUMP_RELAY, HIGH);
+    digitalWrite(LED_BUILTIN, HIGH);
+    pumpIsOn = true;
 
-      // We are now in a correction. Reset the timer.
-      correctionTimerStart = millis();
-      getLocalTime(&timeinfo_pumpState);
-      temperatureIsGood = false;
+    // We are now in a correction. Reset the timer.
+    correctionTimerStart = millis();
+    getLocalTime(&timeinfo_pumpState);
+    temperatureIsGood = false;
 
-      // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
-      currentPumpStateStart = correctionTimerStart;
-    }
-    // Check for absolute lower threshold
-    if (trustedTemp <= TEMP_ABSOLUTE_LOWER && !extremeLowTempAlertSent) {
-      // This is very bad. The temp should never, ever get this low.
-      pendingAlert = true;
-      dtostrf(trustedTemp, 4, 2, tempFloat);
-      sprintf(charErrorMessage, "DANGER: Temperature has dropped to %s\0", tempFloat);
-      extremeLowTempAlertPending = true;
-      extremeLowTempAlertSent = false;
-    }
-  } else if (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp < TEMP_BOILER_LOWER_TRIGGER) {
-    if (pumpIsOn) {
-      // We hit the upper trigger, or the boiler is too cold, and the pump is on.
-      // Unless you want boiled tilapia for dinner, turn it off.
-      if (trustedTemp >= TEMP_UPPER_TRIGGER) Serial.println("Turning off pump because the fish are nice and warm now");
-      if (boilerTemp < TEMP_BOILER_LOWER_TRIGGER) Serial.println("Turning off pump because there's not enough heat from the boiler");
-      digitalWrite(PUMP_RELAY, LOW);
-      digitalWrite(LED_BUILTIN, LOW);
-      pumpIsOn = false;
+    // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
+    currentPumpStateStart = correctionTimerStart;
+  } else if (pumpIsOn && (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp < TEMP_BOILER_LOWER_TRIGGER)) {
+    // We hit the upper trigger, or the boiler is too cold, and the pump is on.
+    // Unless you want boiled tilapia for dinner, turn it off.
+    if (trustedTemp >= TEMP_UPPER_TRIGGER) Serial.println("Turning off pump because the fish are nice and warm now");
+    if (boilerTemp < TEMP_BOILER_LOWER_TRIGGER) Serial.println("Turning off pump because there's not enough heat from the boiler");
+    digitalWrite(PUMP_RELAY, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
+    pumpIsOn = false;
 
-      // We are now in a correction. Reset the timer.
-      correctionTimerStart = millis();
-      getLocalTime(&timeinfo_pumpState);
-      temperatureIsGood = false;
+    // We are now in a correction. Reset the timer.
+    correctionTimerStart = millis();
+    getLocalTime(&timeinfo_pumpState);
+    temperatureIsGood = false;
 
-      // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
-      currentPumpStateStart = correctionTimerStart;
-    }
-    // Check for absolute upper threshold
-    if (trustedTemp >= TEMP_ABSOLUTE_UPPER && !extremeHighTempAlertSent) {
-      // This is very bad. The temp should never, ever get this high.
-      pendingAlert = true;
-      dtostrf(trustedTemp, 4, 2, tempFloat);
-      sprintf(charErrorMessage, "DANGER: Temperature has risen to %s\0", tempFloat);
-      extremeHighTempAlertPending = true;
-      extremeHighTempAlertSent = false;
-    }
+    // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
+    currentPumpStateStart = correctionTimerStart;
+  }
+
+  // Check for absolute thresholds
+  if (trustedTemp <= TEMP_ABSOLUTE_LOWER && !extremeLowTempAlertSent) {
+    // This is very bad. The temp should never, ever get this low.
+    pendingAlert = true;
+    dtostrf(trustedTemp, 4, 2, tempFloat);
+    sprintf(charErrorMessage, "DANGER: Temperature has dropped to %s\0", tempFloat);
+    extremeLowTempAlertPending = true;
+    extremeLowTempAlertSent = false;
+  } else if (trustedTemp >= TEMP_ABSOLUTE_UPPER && !extremeHighTempAlertSent) {
+    // This is very bad. The temp should never, ever get this high.
+    pendingAlert = true;
+    dtostrf(trustedTemp, 4, 2, tempFloat);
+    sprintf(charErrorMessage, "DANGER: Temperature has risen to %s\0", tempFloat);
+    extremeHighTempAlertPending = true;
+    extremeHighTempAlertSent = false;
   } else {
     // Reset all error flags
     temperatureIsGood = true;
