@@ -31,11 +31,7 @@ char pass[] = "72+wwi7w6b=q";
 #define NUMBER_OF_AMBIENT_SENSORS 1
 #define NUMBER_OF_BOILER_SENSORS 1
 #define NUMBER_OF_WATER_SENSORS 3
-#if PRODUCTION_UNIT
-  #define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_WATER_SENSORS)
-#else
-  #define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_BOILER_SENSORS + NUMBER_OF_WATER_SENSORS)
-#endif
+#define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_BOILER_SENSORS + NUMBER_OF_WATER_SENSORS)
 #define MILLISECONDS_IN_ONE_DAY  86400000u
 
 // GPIO pins
@@ -57,7 +53,7 @@ char pass[] = "72+wwi7w6b=q";
 #define TEMP_UPPER_TRIGGER 75.00              // Turn off the pump when temperature is more than this amount
 #define TEMP_ABSOLUTE_LOWER  50.00            // Send an alert if the temperature ever drops below this amount
 #define TEMP_ABSOLUTE_UPPER  85.00            // Send an alert if the temperature ever rises above this amount
-#define TEMP_SENSOR_DISCONNECTED -196.60f     // The sensor library will return this specific reading for a sensor that becomes unresponsive
+#define TEMP_SENSOR_DISCONNECTED -196.60      // The sensor library will return this specific reading for a sensor that becomes unresponsive
 #define TEMP_BOILER_LOWER_TRIGGER  90.00      // If the boiler gets below this temp, cut off the pump
 
 // Time-outs and retry thresholds
@@ -207,16 +203,17 @@ typedef struct _SensorInfo {
 
 #if PRODUCTION_UNIT
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
-  { 0xff, (byte)1, false, tank, {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
-  { 0xff, (byte)2, false, tank, {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
-  { 0xff, (byte)3, false, tank, {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
-  { 0xff, (byte)4, false, ambient,  {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}} // ambient sensor
+  { 0xff, (byte)1, false, tank,    {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
+  { 0xff, (byte)2, false, tank,    {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
+  { 0xff, (byte)3, false, tank,    {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
+  { 0xff, (byte)4, false, ambient, {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}},
+  { 0xff, (byte)5, false, boiler,  {0x28, 0x90, 0x06, 0x07, 0xD6, 0x01, 0x3C, 0xA4}}
 };
 #else
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
-  { 0xff, (byte)1, false, tank, {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
-  { 0xff, (byte)2, false, tank, {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
-  { 0xff, (byte)3, false, tank, {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
+  { 0xff, (byte)1, false, tank,    {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
+  { 0xff, (byte)2, false, tank,    {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
+  { 0xff, (byte)3, false, tank,    {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
   { 0xff, (byte)4, false, ambient, {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}},  // orange
   { 0xff, (byte)5, false, boiler,  {0x28, 0x90, 0x06, 0x07, 0xD6, 0x01, 0x3C, 0xA4}}  // brown
 };
@@ -363,9 +360,9 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
   if (hours <= 24) {
     // It's only been a few hours
     if (minutes == 0)
-      sprintf(str, "%d hour%s", hours, hours > 1 ? "s" : "");
+      sprintf(str, "%d hour%s", hours, hours == 1 ? "" : "s");
     else
-      sprintf(str, "%d hour%s and %d minute%s", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+      sprintf(str, "%d hour%s and %d minute%s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
     return;
   }
 
@@ -373,9 +370,9 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
   uint days = hours / 24;
   hours -= days * 24;
   if (minutes == 0)
-      sprintf(str, "%d day%s and %d hour%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "");
+      sprintf(str, "%d day%s and %d hour%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s");
   else
-    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
 }
 
 char* getSystemStatus() {
