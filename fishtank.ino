@@ -49,12 +49,13 @@ char pass[] = "72+wwi7w6b=q";
 
 // Temperature set points
 #define MAX_ACCEPTABLE_TEMPERATURE_DELTA 4.0  // If a sensor's average drift from the others exceeds this amount, it will be blacklisted
-#define TEMP_LOWER_TRIGGER 70.00              // Turn on the pump when temperature is less than this amount
-#define TEMP_UPPER_TRIGGER 75.00              // Turn off the pump when temperature is more than this amount
+#define TEMP_LOWER_TRIGGER 70.00              // Turn on the pump when temperature is less than this amount, if the boiler is hot enough
+#define TEMP_UPPER_TRIGGER 75.00              // Turn off the pump when temperature is more than this amount, unconditionally
 #define TEMP_ABSOLUTE_LOWER  50.00            // Send an alert if the temperature ever drops below this amount
 #define TEMP_ABSOLUTE_UPPER  85.00            // Send an alert if the temperature ever rises above this amount
 #define TEMP_SENSOR_DISCONNECTED -196.60      // The sensor library will return this specific reading for a sensor that becomes unresponsive
-#define TEMP_BOILER_LOWER_TRIGGER  90.00      // If the boiler gets below this temp, cut off the pump
+#define TEMP_BOILER_UPPER_TRIGGER  90.00      // If the boiler is at or above this temp, turn on the pump if needed
+#define TEMP_BOILER_LOWER_TRIGGER  89.00      // If the boiler is at or below this temp, turn off the pump unconditionally
 
 // Time-outs and retry thresholds
 #define MAX_WIFI_ATTEMPTS   120               // Reboot if we can't connect after this many attempts
@@ -1029,7 +1030,7 @@ void loop() {
 
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
-  if (!pumpIsOn && trustedTemp <= TEMP_LOWER_TRIGGER && boilerTemp > TEMP_BOILER_LOWER_TRIGGER) {
+  if (!pumpIsOn && trustedTemp <= TEMP_LOWER_TRIGGER && boilerTemp >= TEMP_BOILER_UPPER_TRIGGER) {
     // We hit the lower trigger, the pump is not on, and there's heat available from the boiler.
     // Turn it on.
     Serial.println("Turning on pump");
@@ -1044,11 +1045,11 @@ void loop() {
 
     // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
     currentPumpStateStart = correctionTimerStart;
-  } else if (pumpIsOn && (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp < TEMP_BOILER_LOWER_TRIGGER)) {
+  } else if (pumpIsOn && (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp <= TEMP_BOILER_LOWER_TRIGGER)) {
     // We hit the upper trigger, or the boiler is too cold, and the pump is on.
     // Unless you want boiled tilapia for dinner, turn it off.
     if (trustedTemp >= TEMP_UPPER_TRIGGER) Serial.println("Turning off pump because the fish are nice and warm now");
-    if (boilerTemp < TEMP_BOILER_LOWER_TRIGGER) Serial.println("Turning off pump because there's not enough heat from the boiler");
+    if (boilerTemp <= TEMP_BOILER_LOWER_TRIGGER) Serial.println("Turning off pump because there's not enough heat from the boiler");
     digitalWrite(PUMP_RELAY, LOW);
     digitalWrite(LED_BUILTIN, LOW);
     pumpIsOn = false;
