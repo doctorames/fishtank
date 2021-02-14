@@ -29,15 +29,15 @@ char pass[] = "72+wwi7w6b=q";
 // char pass[] = "aaadaa001";
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
+#define NUMBER_OF_BOILER_SENSORS 1
 #define NUMBER_OF_WATER_SENSORS 3
-#define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_WATER_SENSORS)
+#define NUMBER_OF_SENSORS  (NUMBER_OF_AMBIENT_SENSORS + NUMBER_OF_BOILER_SENSORS + NUMBER_OF_WATER_SENSORS)
 #define MILLISECONDS_IN_ONE_DAY  86400000u
 
 // GPIO pins
 #define ONE_WIRE_BUS 16
 #define PUMP_RELAY 19
-#define START_BUTTON 17
-#define PUSH_BUTTON 5
+#define PUSH_BUTTON 17
 #define ALERT_LED LED_BUILTIN
 
 // EEPROM bytes
@@ -49,11 +49,13 @@ char pass[] = "72+wwi7w6b=q";
 
 // Temperature set points
 #define MAX_ACCEPTABLE_TEMPERATURE_DELTA 4.0  // If a sensor's average drift from the others exceeds this amount, it will be blacklisted
-#define TEMP_LOWER_TRIGGER 70.00              // Turn on the pump when temperature is less than this amount
-#define TEMP_UPPER_TRIGGER 75.00              // Turn off the pump when temperature is more than this amount
+#define TEMP_LOWER_TRIGGER 70.00              // Turn on the pump when temperature is less than this amount, if the boiler is hot enough
+#define TEMP_UPPER_TRIGGER 75.00              // Turn off the pump when temperature is more than this amount, unconditionally
 #define TEMP_ABSOLUTE_LOWER  50.00            // Send an alert if the temperature ever drops below this amount
 #define TEMP_ABSOLUTE_UPPER  85.00            // Send an alert if the temperature ever rises above this amount
-#define TEMP_SENSOR_DISCONNECTED -196.60f     // The sensor library will return this specific reading for a sensor that becomes unresponsive
+#define TEMP_SENSOR_DISCONNECTED -196.60      // The sensor library will return this specific reading for a sensor that becomes unresponsive
+#define TEMP_BOILER_UPPER_TRIGGER  90.00      // If the boiler is at or above this temp, turn on the pump if needed
+#define TEMP_BOILER_LOWER_TRIGGER  89.00      // If the boiler is at or below this temp, turn off the pump unconditionally
 
 // Time-outs and retry thresholds
 #define MAX_WIFI_ATTEMPTS   120               // Reboot if we can't connect after this many attempts
@@ -84,6 +86,7 @@ bool lcdIsOn = false;
 IPAddress localIP;
 unsigned long lcdTimeoutCounter = 0;
 float trustedTemp;
+float boilerTemp;
 char httpStr[256];
 #define SYS_STATUS_PAGE_STR_LEN 512
 char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
@@ -185,27 +188,35 @@ LiquidCrystal_I2C lcd(0x27, 16, 4);
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
+typedef enum {
+  tank,
+  ambient,
+  boiler
+} SensorLocation;
+
 typedef struct _SensorInfo {
-  int           busIndex;  // The index of the sensor as seen by DallasTemperature library
-  byte          stickerId; // The number we assign to the sensor when we physically put a sticker on it
-  bool          blacklisted;
-  bool          ambient;
-  DeviceAddress address;   // The factory-assigned ID of the sensor (we have no say in this)
+  int            busIndex;  // The index of the sensor as seen by DallasTemperature library
+  byte           stickerId; // The number we assign to the sensor when we physically put a sticker on it
+  bool           blacklisted;
+  SensorLocation location;
+  DeviceAddress  address;   // The factory-assigned ID of the sensor (we have no say in this)
 } SensorInfo;
 
 #if PRODUCTION_UNIT
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
-  { 0xff, (byte)1, false, false, {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
-  { 0xff, (byte)2, false, false, {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
-  { 0xff, (byte)3, false, false, {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
-  { 0xff, (byte)4, false, true,  {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}} // ambient sensor
+  { 0xff, (byte)1, false, tank,    {0x28, 0xF8, 0x13, 0x07, 0xB6, 0x01, 0x3C, 0xCD}},
+  { 0xff, (byte)2, false, tank,    {0x28, 0x4E, 0xE3, 0x07, 0xB6, 0x01, 0x3C, 0xDE}},
+  { 0xff, (byte)3, false, tank,    {0x28, 0x69, 0xA8, 0x07, 0xB6, 0x01, 0x3C, 0x74}},
+  { 0xff, (byte)4, false, ambient, {0x28, 0xC2, 0xDC, 0x07, 0xB6, 0x01, 0x3C, 0xA2}},
+  { 0xff, (byte)5, false, boiler,  {0x28, 0x90, 0x06, 0x07, 0xD6, 0x01, 0x3C, 0xA4}}
 };
 #else
 SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
-  { 0xff, (byte)1, false, false, {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
-  { 0xff, (byte)2, false, false, {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
-  { 0xff, (byte)3, false, false, {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
-  { 0xff, (byte)4, false, true,  {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}}  // orange (ambient)
+  { 0xff, (byte)1, false, tank,    {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
+  { 0xff, (byte)2, false, tank,    {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
+  { 0xff, (byte)3, false, tank,    {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
+  { 0xff, (byte)4, false, ambient, {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}},  // orange
+  { 0xff, (byte)5, false, boiler,  {0x28, 0x90, 0x06, 0x07, 0xD6, 0x01, 0x3C, 0xA4}}  // brown
 };
 #endif
 
@@ -308,14 +319,7 @@ bool sendMessageToAWS(const char* message)
   Serial.println("Publishing message to AWS...");
   char jsonBuffer[512];
   serializeJson(jsonDoc, jsonBuffer);
-
-  // Serial.print(jsonBuffer);
-
   bool ret = client.publish(AWS_IOT_TOPIC, jsonBuffer);
-
-  Serial.print("\nJSON Status: ");
-  Serial.println(ret);
-
   client.disconnect();
 
   return ret;
@@ -357,9 +361,9 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
   if (hours <= 24) {
     // It's only been a few hours
     if (minutes == 0)
-      sprintf(str, "%d hour%s", hours, hours > 1 ? "s" : "");
+      sprintf(str, "%d hour%s", hours, hours == 1 ? "" : "s");
     else
-      sprintf(str, "%d hour%s and %d minute%s", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+      sprintf(str, "%d hour%s and %d minute%s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
     return;
   }
 
@@ -367,9 +371,9 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
   uint days = hours / 24;
   hours -= days * 24;
   if (minutes == 0)
-      sprintf(str, "%d day%s and %d hour%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "");
+      sprintf(str, "%d day%s and %d hour%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s");
   else
-    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days > 1 ? "s" : "", hours, hours > 1 ? "s" : "", minutes, minutes > 1 ? "s" : "");
+    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
 }
 
 char* getSystemStatus() {
@@ -394,7 +398,7 @@ char* getSystemStatus() {
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     // sprintf() does not support %f on arduino, so we have to convert the temperature
     // to a string first, and pass the string into sprintf().
-    if (!sensorMap[i].ambient) {
+    if (sensorMap[i].location == tank) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
       sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
       html += httpStr;
@@ -402,13 +406,13 @@ char* getSystemStatus() {
   }
   html += "</br>";
   
-  // Show the ambient sensor
+  // Show the ambient and boiler sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     // sprintf() does not support %f on arduino, so we have to convert the temperature
     // to a string first, and pass the string into sprintf().
-    if (sensorMap[i].ambient) {
+    if (sensorMap[i].location == ambient || sensorMap[i].location == boiler) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-      sprintf(httpStr, "Ambient:  %s</br>", tempFloat);
+      sprintf(httpStr, "%s:  %s</br>", sensorMap[i].location == ambient ? "Ambient" : "Boiler", tempFloat);
       html += httpStr;
     }
   }
@@ -660,7 +664,7 @@ void setup() {
   DeviceAddress addr;
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
     if (sensors.getAddress(addr, i)) {
-      if (!sensorMap[i].ambient) senorsInitialized = true; // Only set this true if we found a WATER sensor. Those are critical.
+      if (sensorMap[i].location == tank) senorsInitialized = true; // Only set this true if we found a WATER sensor. Those are critical.
       for (int j = 0; j < NUMBER_OF_SENSORS; j++) {
         if (compareAddresses(addr, sensorMap[j].address)) {
           // found a match
@@ -672,7 +676,7 @@ void setup() {
           Serial.print(sensorMap[j].busIndex);
           Serial.print(" ");
           Serial.println(sensors.getTempF(sensorMap[i].address));
-          if (!sensorMap[i].ambient) goodSensors++;
+          if (sensorMap[i].location == tank) goodSensors++;
           break;
         }//if
       }// for(j)
@@ -721,10 +725,10 @@ void setup() {
   }
 
   // Set the push button for GPIO17
-  pinMode(START_BUTTON, INPUT_PULLUP);
+  pinMode(PUSH_BUTTON, INPUT_PULLUP);
 
 #if DEBUG
-  attachInterrupt(START_BUTTON, WaitVector, FALLING);
+  attachInterrupt(PUSH_BUTTON, WaitVector, FALLING);
 
   Serial.print("Waiting");
   while(!okgo) {
@@ -735,11 +739,11 @@ void setup() {
   Serial.println("GO!");
 
   // todo: remove for production
-  detachInterrupt(START_BUTTON);
+  detachInterrupt(PUSH_BUTTON);
 #endif
 
   // Set the push button for GPIO17
-  attachInterrupt(START_BUTTON, PbVector, FALLING);
+  attachInterrupt(PUSH_BUTTON, PbVector, FALLING);
 
   pinMode(PUMP_RELAY, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
@@ -782,7 +786,6 @@ void loop() {
     // If sendMessageToAWS fails, set pendingAlert to true so it keeps trying.
     // Don't give up until the error gets out!
     Serial.println("Sending message to AWS:");
-    Serial.println(charErrorMessage);
     pendingAlert = !sendMessageToAWS(charErrorMessage);
     if (!pendingAlert) {
       // Alert sent successfully
@@ -800,7 +803,7 @@ void loop() {
         extremeHighTempAlertSent = true;
       }
     } else {
-      Serial.println("Message sent successfully.");
+      Serial.println("Message failed to send.");
     }
   }
 
@@ -839,7 +842,7 @@ void loop() {
       lcd.print("Ambient Temp:");
       lcd.setCursor(0,1);
       for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-        if (sensorMap[i].ambient) {
+        if (sensorMap[i].location == ambient) {
           lcd.print(sensors.getTempF(sensorMap[i].address));
           break;
         }
@@ -859,7 +862,7 @@ void loop() {
     deltaHi = 0;
     deltaLo = 999;
     for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
-      if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+      if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
       temp = sensors.getTempF(sensorMap[i].address);
       if (temp < deltaLo) deltaLo = temp;
       if (temp > deltaHi) deltaHi = temp;
@@ -877,7 +880,7 @@ void loop() {
         int idx = 0;
         memset(lastTwoSensorIndecies, 0, sizeof(*lastTwoSensorIndecies) * 2);
         for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
-          if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+          if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
           if (idx++ == 0) {
             tempA = sensors.getTempF(sensorMap[i].address);
             lastTwoSensorIndecies[0] = i;
@@ -919,13 +922,13 @@ void loop() {
         // Find the outlier
         highestAverageDelta = 0;
         for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
-          if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+          if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
 
           runningAverageDelta = 0;
           tempA = sensors.getTempF(sensorMap[i].address);
           for (int j = 0; j < NUMBER_OF_SENSORS; j++) {
             if (j == i) continue; // Don't compare a sensor to itself!
-            if (sensorMap[j].blacklisted || sensorMap[j].ambient) continue;
+            if (sensorMap[j].blacklisted || sensorMap[j].location != tank) continue;
             tempB = sensors.getTempF(sensorMap[j].address);
             runningAverageDelta += abs(tempA - tempB);
           }
@@ -971,7 +974,7 @@ void loop() {
     if (!oneSensorNagSent) {
       // Send it
       int oneSensor = 0;
-      for (int i = 0; i < NUMBER_OF_SENSORS; i++) if (!sensorMap[i].blacklisted && !sensorMap[i].ambient) { oneSensor = sensorMap[i].stickerId; break; }
+      for (int i = 0; i < NUMBER_OF_SENSORS; i++) if (!sensorMap[i].blacklisted && sensorMap[i].location == tank) { oneSensor = sensorMap[i].stickerId; break; }
       String oneSensorTemp = String(trustedTemp);
       sprintf(charErrorMessage, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
       if (oneSensorNagSent = sendMessageToAWS(charErrorMessage)) {
@@ -994,10 +997,18 @@ void loop() {
     // Now that we have some idea of what we can trust,
     // go ahead and take the reading of the first one (that's trusted)
     // as the temperature.
-    if (sensorMap[i].blacklisted || sensorMap[i].ambient) continue;
+    if (sensorMap[i].blacklisted || sensorMap[i].location != tank) continue;
     trustedTemp = sensors.getTempF(sensorMap[i].address);
     trustedSensor = sensorMap[i].stickerId;
     break;
+  }
+
+  // Get the boiler temp
+  for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
+    if (sensorMap[i].location == boiler) {
+      boilerTemp = sensors.getTempF(sensorMap[i].address);
+      break;
+    }
   }
 
   if (!temperatureIsGood) {
@@ -1019,58 +1030,54 @@ void loop() {
 
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
-  if (trustedTemp <= TEMP_LOWER_TRIGGER) {
-    if (!pumpIsOn) {
-      // We hit the lower trigger, and the pump is not on.
-      // Turn it on.
-      Serial.println("Turning on pump");
-      digitalWrite(PUMP_RELAY, HIGH);
-      digitalWrite(LED_BUILTIN, HIGH);
-      pumpIsOn = true;
+  if (!pumpIsOn && trustedTemp <= TEMP_LOWER_TRIGGER && boilerTemp >= TEMP_BOILER_UPPER_TRIGGER) {
+    // We hit the lower trigger, the pump is not on, and there's heat available from the boiler.
+    // Turn it on.
+    Serial.println("Turning on pump");
+    digitalWrite(PUMP_RELAY, HIGH);
+    digitalWrite(LED_BUILTIN, HIGH);
+    pumpIsOn = true;
 
-      // We are now in a correction. Reset the timer.
-      correctionTimerStart = millis();
-      getLocalTime(&timeinfo_pumpState);
-      temperatureIsGood = false;
+    // We are now in a correction. Reset the timer.
+    correctionTimerStart = millis();
+    getLocalTime(&timeinfo_pumpState);
+    temperatureIsGood = false;
 
-      // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
-      currentPumpStateStart = correctionTimerStart;
-    }
-    // Check for absolute lower threshold
-    if (trustedTemp <= TEMP_ABSOLUTE_LOWER && !extremeLowTempAlertSent) {
-      // This is very bad. The temp should never, ever get this low.
-      pendingAlert = true;
-      dtostrf(trustedTemp, 4, 2, tempFloat);
-      sprintf(charErrorMessage, "DANGER: Temperature has dropped to %s\0", tempFloat);
-      extremeLowTempAlertPending = true;
-      extremeLowTempAlertSent = false;
-    }
-  } else if (trustedTemp >= TEMP_UPPER_TRIGGER) {
-    if (pumpIsOn) {
-      // We hit the upper trigger, and the pump is on.
-      // Unless you want boiled tilapia for dinner, turn it off.
-      Serial.println("Turning off pump");
-      digitalWrite(PUMP_RELAY, LOW);
-      digitalWrite(LED_BUILTIN, LOW);
-      pumpIsOn = false;
+    // Make a note of when this pump state changed. We will use this to tell the user how long it's been on (if they ask).
+    currentPumpStateStart = correctionTimerStart;
+  } else if (pumpIsOn && (trustedTemp >= TEMP_UPPER_TRIGGER || boilerTemp <= TEMP_BOILER_LOWER_TRIGGER)) {
+    // We hit the upper trigger, or the boiler is too cold, and the pump is on.
+    // Unless you want boiled tilapia for dinner, turn it off.
+    if (trustedTemp >= TEMP_UPPER_TRIGGER) Serial.println("Turning off pump because the fish are nice and warm now");
+    if (boilerTemp <= TEMP_BOILER_LOWER_TRIGGER) Serial.println("Turning off pump because there's not enough heat from the boiler");
+    digitalWrite(PUMP_RELAY, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
+    pumpIsOn = false;
 
-      // We are now in a correction. Reset the timer.
-      correctionTimerStart = millis();
-      getLocalTime(&timeinfo_pumpState);
-      temperatureIsGood = false;
+    // We are now in a correction. Reset the timer.
+    correctionTimerStart = millis();
+    getLocalTime(&timeinfo_pumpState);
+    temperatureIsGood = false;
 
-      // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
-      currentPumpStateStart = correctionTimerStart;
-    }
-    // Check for absolute upper threshold
-    if (trustedTemp >= TEMP_ABSOLUTE_UPPER && !extremeHighTempAlertSent) {
-      // This is very bad. The temp should never, ever get this high.
-      pendingAlert = true;
-      dtostrf(trustedTemp, 4, 2, tempFloat);
-      sprintf(charErrorMessage, "DANGER: Temperature has risen to %s\0", tempFloat);
-      extremeHighTempAlertPending = true;
-      extremeHighTempAlertSent = false;
-    }
+    // Make a note of when this pump state changed. We will use this to tell the user how long it's been off (if they ask).
+    currentPumpStateStart = correctionTimerStart;
+  }
+
+  // Check for absolute thresholds
+  if (trustedTemp <= TEMP_ABSOLUTE_LOWER && !extremeLowTempAlertSent) {
+    // This is very bad. The temp should never, ever get this low.
+    pendingAlert = true;
+    dtostrf(trustedTemp, 4, 2, tempFloat);
+    sprintf(charErrorMessage, "DANGER: Temperature has dropped to %s\0", tempFloat);
+    extremeLowTempAlertPending = true;
+    extremeLowTempAlertSent = false;
+  } else if (trustedTemp >= TEMP_ABSOLUTE_UPPER && !extremeHighTempAlertSent) {
+    // This is very bad. The temp should never, ever get this high.
+    pendingAlert = true;
+    dtostrf(trustedTemp, 4, 2, tempFloat);
+    sprintf(charErrorMessage, "DANGER: Temperature has risen to %s\0", tempFloat);
+    extremeHighTempAlertPending = true;
+    extremeHighTempAlertSent = false;
   } else {
     // Reset all error flags
     temperatureIsGood = true;
@@ -1081,11 +1088,11 @@ void loop() {
     extremeHighTempAlertSent = false;
     extremeHighTempAlertPending = false;
     if (tempOutOfRangeForTooLong) {
-      // Looks like we had a close call, but things are god now.
+      // Looks like we had a close call, but things are good now.
       tempOutOfRangeForTooLong = false;
 
       String strRecoveredTemp = String(trustedTemp);
-      sprintf(charErrorMessage, "Whew! Looks like we're back in range again. Temperature is now %s\0", strRecoveredTemp.c_str());
+      sprintf(charErrorMessage, "Looks like we're back in range again. Temperature is now %s\0", strRecoveredTemp.c_str());
       pendingAlert = true;
       Serial.println(charErrorMessage);
     }
