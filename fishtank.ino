@@ -1010,7 +1010,7 @@ void loop() {
       break;
     }
   }
-
+/*
   if (!temperatureIsGood) {
     // Temperature is out of range.
     // Rectification should be in progress, but increment the timer.
@@ -1027,7 +1027,7 @@ void loop() {
       Serial.println(charErrorMessage);
     }
   }
-
+*/
   // If we get here, then we have a temperature reading that we trust.
   // Act on it.
   if (!pumpIsOn && trustedTemp <= TEMP_LOWER_TRIGGER && boilerTemp >= TEMP_BOILER_UPPER_TRIGGER) {
@@ -1064,6 +1064,7 @@ void loop() {
   }
 
   // Check for absolute thresholds
+  /*
   if (trustedTemp <= TEMP_ABSOLUTE_LOWER && !extremeLowTempAlertSent) {
     // This is very bad. The temp should never, ever get this low.
     pendingAlert = true;
@@ -1096,7 +1097,7 @@ void loop() {
       pendingAlert = true;
       Serial.println(charErrorMessage);
     }
-  }
+  }*/
 
   // This is just to listen for incoming http queries
   server.handleClient();
