@@ -44,6 +44,8 @@ char pass[] = "72+wwi7w6b=q";
 #define EEPROM_RECOVERY_BYTE 0
 #define EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS 1
 
+#define EEPROM_MUTE_NOTIFICATIONS_BYTE  1    // 0 = notifications NOT muted, 1 = notifications muted
+
 #define EEPROM_RECOVERY_NO_SENSORS 1         // Rebooted because I could not detect any sensors at startup
 #define EEPROM_RECOVERY_WHAT_TO_BELIEVE 2    // Rebooted because all sensors disagree and I don't know what to believe anymore
 
@@ -92,6 +94,7 @@ char httpStr[256];
 char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
+char notificationsMuted = 0;
 
 typedef enum {
   showWifi,
@@ -303,6 +306,7 @@ bool sendMessageToAWS(const char* message)
   return true;
 #endif
   if (!internetIsUp) return false;
+  if (notificationsMuted) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return false;}
   if (!connectToAWS()) {
       // this is no bueno
       return false;
@@ -625,6 +629,8 @@ void setup() {
     memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
     setupOta();
   }
+
+  notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
