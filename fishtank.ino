@@ -41,12 +41,12 @@ char pass[] = "aaadaa001";
 
 // EEPROM bytes
 #define EEPROM_RECOVERY_BYTE 0
-#define EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS 1
-
-#define EEPROM_MUTE_NOTIFICATIONS_BYTE  1    // 0 = notifications NOT muted, 1 = notifications muted
+#define EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS 2
 
 #define EEPROM_RECOVERY_NO_SENSORS 1         // Rebooted because I could not detect any sensors at startup
 #define EEPROM_RECOVERY_WHAT_TO_BELIEVE 2    // Rebooted because all sensors disagree and I don't know what to believe anymore
+
+#define EEPROM_MUTE_NOTIFICATIONS_BYTE  1    // 0 = notifications NOT muted, 1 = notifications muted
 
 // Temperature set points
 #define MAX_ACCEPTABLE_TEMPERATURE_DELTA 4.0  // If a sensor's average drift from the others exceeds this amount, it will be blacklisted
@@ -93,7 +93,6 @@ char httpStr[256];
 char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
-char notificationsMuted = 0;
 
 typedef enum {
   showWifi,
@@ -305,7 +304,8 @@ bool sendMessageToAWS(const char* message)
   return true;
 #endif
   if (!internetIsUp) return false;
-  if (notificationsMuted) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return false;}
+  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
+  if (notificationsMuted == 1) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return false;}
   if (!connectToAWS()) {
       // this is no bueno
       return false;
@@ -392,6 +392,7 @@ char* getSystemStatus() {
   struct tm ti;
   getLocalTime(&ti);
   char currentTime[40];
+  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
   memset(currentTime, 0, 40);
   getDateTimeMyWay(&ti, dateTime, 24);
   sprintf(currentTime, "Readings as of:  %s", dateTime);
@@ -436,10 +437,10 @@ char* getSystemStatus() {
   getDateTimeMyWay(&timeinfo_boot, dateTime, 24);
   html += "<span style=\"font-size:30px\">";
 
-  sprintf(httpStr, "Notifications are %s    ", notificationsMuted ? "<span id='notifications_span' style=\"color:Red;\">OFF</span>" : "<span id='notifications_span' style=\"color:Green;\">ON</span>");
+  sprintf(httpStr, "Notifications are %s    ", notificationsMuted == 1 ? "<span id='notifications_span' style=\"color:Red;\">OFF</span>" : "<span id='notifications_span' style=\"color:Green;\">ON</span>");
   html += httpStr;
   html += "<input type='button' id='toggle_button' value='";
-  html += notificationsMuted ? "Turn On" : "Turn Off";
+  html += notificationsMuted == 1 ? "Turn On" : "Turn Off";
   html += "' onclick='toggle()'>";
   html += "</br>";
 
@@ -464,8 +465,11 @@ bool setupOta() {
     server.send(200, "text/html", getSystemStatus());
   });
   server.on("/toggle_mute", HTTP_POST, []() {
+    char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
     notificationsMuted = notificationsMuted == 1 ? 0 : 1;
-    server.send(200, "text/plain", notificationsMuted ? "Turn On" : "Turn Off");
+    EEPROM.write(EEPROM_MUTE_NOTIFICATIONS_BYTE, (byte)notificationsMuted);
+    EEPROM.commit();
+    server.send(200, "text/plain", notificationsMuted == 1 ? "Turn On" : "Turn Off");
   });
   server.on("/upgrade", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
@@ -641,8 +645,6 @@ void setup() {
     memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
     setupOta();
   }
-
-  notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
