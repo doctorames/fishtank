@@ -89,7 +89,7 @@ unsigned long lcdTimeoutCounter = 0;
 float trustedTemp;
 float boilerTemp;
 char httpStr[256];
-#define SYS_STATUS_PAGE_STR_LEN 512
+#define SYS_STATUS_PAGE_STR_LEN 2048
 char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
@@ -386,6 +386,7 @@ char* getSystemStatus() {
 #if !PRODUCTION_UNIT
   html += "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
 #endif
+  html += "<script>function toggle() {var xhttp = new XMLHttpRequest();xhttp.open('POST', 'toggle_mute', true);xhttp.onload = function(){console.log(this.responseText); document.getElementById('toggle_button').value = this.responseText; document.getElementById('notifications_span').innerHTML = this.responseText == 'Turn Off' ? 'ON' : 'OFF'; document.getElementById('notifications_span').style = this.responseText == 'Turn Off' ? 'color:Green;' : 'color:Red;'; }; xhttp.send('poop');}</script>";
 
   char dateTime[24];
   struct tm ti;
@@ -431,9 +432,17 @@ char* getSystemStatus() {
   html += httpStr;
   html += "</br>";
 
-  // Show system uptime
+  // Show system uptime and notification status
   getDateTimeMyWay(&timeinfo_boot, dateTime, 24);
   html += "<span style=\"font-size:30px\">";
+
+  sprintf(httpStr, "Notifications are %s    ", notificationsMuted ? "<span id='notifications_span' style=\"color:Red;\">OFF</span>" : "<span id='notifications_span' style=\"color:Green;\">ON</span>");
+  html += httpStr;
+  html += "<input type='button' id='toggle_button' value='";
+  html += notificationsMuted ? "Turn On" : "Turn Off";
+  html += "' onclick='toggle()'>";
+  html += "</br>";
+
   sprintf(httpStr, "Last boot:  %s</br>", dateTime);
   html += httpStr;
   millisToDaysHoursMinutes(millis() - systemBootTime, currentTime, 40);
@@ -453,6 +462,10 @@ bool setupOta() {
   server.on("/", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send(200, "text/html", getSystemStatus());
+  });
+  server.on("/toggle_mute", HTTP_POST, []() {
+    notificationsMuted = notificationsMuted == 1 ? 0 : 1;
+    server.send(200, "text/plain", notificationsMuted ? "Turn On" : "Turn Off");
   });
   server.on("/upgrade", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
