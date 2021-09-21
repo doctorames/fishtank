@@ -15,14 +15,13 @@
 
 #define DEBUG 0
 #define PRODUCTION_UNIT 1
-#define AT_PEEPAWS 1
 
-#if AT_PEEPAWS
+#if PRODUCTION_UNIT
 char ssid[] = "ATT4meZ5qR";
 char pass[] = "7xj%4%82sxz5";
 #else
-char ssid[] = "ATT8Vnn5MG";
-char pass[] = "72+wwi7w6b=q";
+char ssid[] = "ames";
+char pass[] = "aaadaa001";
 #endif
 
 // char ssid[] = "Ugh";
