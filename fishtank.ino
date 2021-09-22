@@ -41,10 +41,12 @@ char pass[] = "aaadaa001";
 
 // EEPROM bytes
 #define EEPROM_RECOVERY_BYTE 0
-#define EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS 1
+#define EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS 2
 
 #define EEPROM_RECOVERY_NO_SENSORS 1         // Rebooted because I could not detect any sensors at startup
 #define EEPROM_RECOVERY_WHAT_TO_BELIEVE 2    // Rebooted because all sensors disagree and I don't know what to believe anymore
+
+#define EEPROM_MUTE_NOTIFICATIONS_BYTE  1    // 0 = notifications NOT muted, 1 = notifications muted
 
 // Temperature set points
 #define MAX_ACCEPTABLE_TEMPERATURE_DELTA 4.0  // If a sensor's average drift from the others exceeds this amount, it will be blacklisted
@@ -87,7 +89,7 @@ unsigned long lcdTimeoutCounter = 0;
 float trustedTemp;
 float boilerTemp;
 char httpStr[256];
-#define SYS_STATUS_PAGE_STR_LEN 512
+#define SYS_STATUS_PAGE_STR_LEN 2048
 char systemStatusPageStr[SYS_STATUS_PAGE_STR_LEN];
 char tempFloat[12];
 short pushButtonSemaphore = 0;
@@ -302,6 +304,8 @@ bool sendMessageToAWS(const char* message)
   return true;
 #endif
   if (!internetIsUp) return false;
+  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
+  if (notificationsMuted == 1) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return true;}
   if (!connectToAWS()) {
       // this is no bueno
       return false;
@@ -382,11 +386,13 @@ char* getSystemStatus() {
 #if !PRODUCTION_UNIT
   html += "<span style=\"color:Red;font-size:60px\">---THIS IS THE DEBUG UNIT---</span></br>";
 #endif
+  html += "<script>function toggle() {var xhttp = new XMLHttpRequest();xhttp.open('POST', 'toggle_mute', true);xhttp.onload = function(){console.log(this.responseText); document.getElementById('toggle_button').value = this.responseText; document.getElementById('notifications_span').innerHTML = this.responseText == 'Turn Off' ? 'ON' : 'OFF'; document.getElementById('notifications_span').style = this.responseText == 'Turn Off' ? 'color:Green;' : 'color:Red;'; }; xhttp.send('poop');}</script>";
 
   char dateTime[24];
   struct tm ti;
   getLocalTime(&ti);
   char currentTime[40];
+  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
   memset(currentTime, 0, 40);
   getDateTimeMyWay(&ti, dateTime, 24);
   sprintf(currentTime, "Readings as of:  %s", dateTime);
@@ -427,9 +433,17 @@ char* getSystemStatus() {
   html += httpStr;
   html += "</br>";
 
-  // Show system uptime
+  // Show system uptime and notification status
   getDateTimeMyWay(&timeinfo_boot, dateTime, 24);
   html += "<span style=\"font-size:30px\">";
+
+  sprintf(httpStr, "Notifications are %s    ", notificationsMuted == 1 ? "<span id='notifications_span' style=\"color:Red;\">OFF</span>" : "<span id='notifications_span' style=\"color:Green;\">ON</span>");
+  html += httpStr;
+  html += "<input type='button' id='toggle_button' value='";
+  html += notificationsMuted == 1 ? "Turn On" : "Turn Off";
+  html += "' onclick='toggle()'>";
+  html += "</br>";
+
   sprintf(httpStr, "Last boot:  %s</br>", dateTime);
   html += httpStr;
   millisToDaysHoursMinutes(millis() - systemBootTime, currentTime, 40);
@@ -449,6 +463,13 @@ bool setupOta() {
   server.on("/", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send(200, "text/html", getSystemStatus());
+  });
+  server.on("/toggle_mute", HTTP_POST, []() {
+    char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
+    notificationsMuted = notificationsMuted == 1 ? 0 : 1;
+    EEPROM.write(EEPROM_MUTE_NOTIFICATIONS_BYTE, (byte)notificationsMuted);
+    EEPROM.commit();
+    server.send(200, "text/plain", notificationsMuted == 1 ? "Turn On" : "Turn Off");
   });
   server.on("/upgrade", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
