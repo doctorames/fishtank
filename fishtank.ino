@@ -98,7 +98,8 @@ typedef enum {
   showWifi,
   showWaterTemp,
   showAmbientTemp,
-  showPumpStatus
+  showPumpStatus,
+  showNotificationStatus
 } WhatToDisplay;
 
 WhatToDisplay displaySelector = showWifi;
@@ -868,11 +869,16 @@ void loop() {
         }
       }
     } else if (displaySelector == showPumpStatus) {
-      displaySelector = showWifi;
+      displaySelector = showNotificationStatus;
       lcd.print(pumpIsOn ? "Pump is ON" : "Pump is OFF");
       lcd.setCursor(0,1);
       lcd.print(((millis() - currentPumpStateStart) / 1000) / 60);
       lcd.print(" minutes");
+    } else if (displaySelector == showNotificationStatus) {
+      displaySelector = showWifi;
+      lcd.print("Notifications");
+      lcd.setCursor(0,1);
+      lcd.print(EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE) == 1 ? "are OFF" : "are ON");
     }
     pushButtonSemaphore = 0;
   }
