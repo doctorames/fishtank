@@ -305,7 +305,7 @@ bool sendMessageToAWS(const char* message)
 #endif
   if (!internetIsUp) return false;
   char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
-  if (notificationsMuted == 1) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return false;}
+  if (notificationsMuted == 1) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return true;}
   if (!connectToAWS()) {
       // this is no bueno
       return false;
