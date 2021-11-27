@@ -392,9 +392,9 @@ char* getSystemStatus() {
   char dateTime[24];
   struct tm ti;
   getLocalTime(&ti);
-  char currentTime[40];
+  char currentTime[41];
   char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
-  memset(currentTime, 0, 40);
+  memset(currentTime, 0, 41);
   getDateTimeMyWay(&ti, dateTime, 24);
   sprintf(currentTime, "Readings as of:  %s", dateTime);
   html += currentTime;
