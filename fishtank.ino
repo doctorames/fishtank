@@ -24,9 +24,6 @@ char ssid[] = "ames";
 char pass[] = "aaadaa001";
 #endif
 
-// char ssid[] = "Ugh";
-// char pass[] = "aaadaa001";
-
 #define NUMBER_OF_AMBIENT_SENSORS 1
 #define NUMBER_OF_BOILER_SENSORS 1
 #define NUMBER_OF_WATER_SENSORS 3
@@ -330,10 +327,10 @@ bool sendMessageToAWS(const char* message)
 }
 
 // Returns a timestamp string in the format:
-// h:mm:ss AM|PM, mm/dd/yyyy
+// hh:mm:ss AM|PM, mm/dd/yyyy
 void getDateTimeMyWay(tm* time, char* ptr, int length) {
   memset(ptr, 0, length);
-  sprintf(ptr, "%d:%02d:%02d %s, %d/%d/%d",
+  snprintf(ptr, length, "%d:%02d:%02d %s, %d/%d/%d",
   time->tm_hour > 12 ? time->tm_hour - 12 : time->tm_hour,
   time->tm_min,
   time->tm_sec,
@@ -351,13 +348,15 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
 
   if (seconds <= 60) {
     // It's only been a few seconds
-    sprintf(str, "%d second%s", seconds, seconds == 1 ? "" : "s");
+    // Longest string example, 11 chars: 59 seconds\0
+    snprintf(str, 11, "%d second%s", seconds, seconds == 1 ? "" : "s");
     return;
   }
   uint minutes = seconds / 60;
   if (minutes <= 60) {
     // It's only been a few minutes
-    sprintf(str, "%d minute%s", minutes, minutes == 1 ? "" : "s");
+    // Longest string example, 11 chars: 59 minutes\0
+    snprintf(str, 11, "%d minute%s", minutes, minutes == 1 ? "" : "s");
     return;
   }
   uint hours = minutes / 60;
@@ -365,9 +364,11 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
   if (hours <= 24) {
     // It's only been a few hours
     if (minutes == 0)
-      sprintf(str, "%d hour%s", hours, hours == 1 ? "" : "s");
+      // Longest string example, 9 chars: 23 hours\0
+      snprintf(str, 9, "%d hour%s", hours, hours == 1 ? "" : "s");
     else
-      sprintf(str, "%d hour%s and %d minute%s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
+      // Longest string example, 24 chars: 23 hours and 59 minutes\0
+      snprintf(str, 24, "%d hour%s and %d minute%s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
     return;
   }
 
@@ -375,9 +376,11 @@ void millisToDaysHoursMinutes(unsigned long milliseconds, char* str, int length)
   uint days = hours / 24;
   hours -= days * 24;
   if (minutes == 0)
-      sprintf(str, "%d day%s and %d hour%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s");
+    // Longest string example, 23 chars: 9999 days and 23 hours\0
+    snprintf(str, 23, "%d day%s and %d hour%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s");
   else
-    sprintf(str, "%d day%s, %d hour%s and %d minute%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
+    // Longest string example, 35 chars: 9999 days, 23 hours and 59 minutes\0
+    snprintf(str, 35, "%d day%s, %d hour%s and %d minute%s", days, days == 1 ? "" : "s", hours, hours == 1 ? "" : "s", minutes, minutes == 1 ? "" : "s");
 }
 
 char* getSystemStatus() {
@@ -392,21 +395,23 @@ char* getSystemStatus() {
   char dateTime[24];
   struct tm ti;
   getLocalTime(&ti);
+  // Longest string example, 41 chars: Readings as of:  10:38:16 AM, 11/28/2021\0
   char currentTime[41];
   char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
   memset(currentTime, 0, 41);
   getDateTimeMyWay(&ti, dateTime, 24);
-  sprintf(currentTime, "Readings as of:  %s", dateTime);
+  snprintf(currentTime, 41, "Readings as of:  %s", dateTime);
   html += currentTime;
   html+= "</br></br>";
 
   // Show the water sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-    // sprintf() does not support %f on arduino, so we have to convert the temperature
-    // to a string first, and pass the string into sprintf().
+    // snprintf() does not support %f on arduino, so we have to convert the temperature
+    // to a string first, and pass the string into snprintf().
     if (sensorMap[i].location == tank) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-      sprintf(httpStr, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
+      // Longest string example, 42 chars: Sensor 999:  -196.60   (blacklisted)</br>\0
+      snprintf(httpStr, 42, "Sensor %d:  %s%s</br>", sensorMap[i].stickerId, tempFloat, sensorMap[i].blacklisted ? "   (blacklisted)" : "");
       html += httpStr;
     }
   }
@@ -414,11 +419,12 @@ char* getSystemStatus() {
   
   // Show the ambient and boiler sensors
   for(int i = 0; i < NUMBER_OF_SENSORS; i++) {
-    // sprintf() does not support %f on arduino, so we have to convert the temperature
-    // to a string first, and pass the string into sprintf().
+    // snprintf() does not support %f on arduino, so we have to convert the temperature
+    // to a string first, and pass the string into snprintf().
     if (sensorMap[i].location == ambient || sensorMap[i].location == boiler) {
       dtostrf(sensors.getTempF(sensorMap[i].address), 4, 2, tempFloat);
-      sprintf(httpStr, "%s:  %s</br>", sensorMap[i].location == ambient ? "Ambient" : "Boiler", tempFloat);
+      // Longest string example, 23 chars: Ambient:  -196.60</br>
+      snprintf(httpStr, 23, "%s:  %s</br>", sensorMap[i].location == ambient ? "Ambient" : "Boiler", tempFloat);
       html += httpStr;
     }
   }
@@ -427,7 +433,8 @@ char* getSystemStatus() {
   // Show pump state
   getDateTimeMyWay(&timeinfo_pumpState, dateTime, 24);
   millisToDaysHoursMinutes(millis() - currentPumpStateStart, currentTime, 40);
-  sprintf(httpStr, "Pump has been %s for %s   (since %s)</br>",
+  // Longest string example, 129 chars: Pump has been <span style="color:Green;">ON</span> for 9999 days, 23 hours and 59 minutes   (since 10:08:09 AM, 11/28/2021)</br>\0
+  snprintf(httpStr, 129, "Pump has been %s for %s   (since %s)</br>",
   pumpIsOn ? "<span style=\"color:Green;\">ON</span>" : "<span style=\"color:Red;\">OFF</span>",
   currentTime,
   dateTime);
@@ -438,17 +445,20 @@ char* getSystemStatus() {
   getDateTimeMyWay(&timeinfo_boot, dateTime, 24);
   html += "<span style=\"font-size:30px\">";
 
-  sprintf(httpStr, "Notifications are %s    ", notificationsMuted == 1 ? "<span id='notifications_span' style=\"color:Red;\">OFF</span>" : "<span id='notifications_span' style=\"color:Green;\">ON</span>");
+  // Longest string example, 82 chars: Notifications are <span id='notifications_span' style="color:Green;">ON</span>    
+  snprintf(httpStr, 82, "Notifications are %s    ", notificationsMuted == 1 ? "<span id='notifications_span' style=\"color:Red;\">OFF</span>" : "<span id='notifications_span' style=\"color:Green;\">ON</span>");
   html += httpStr;
   html += "<input type='button' id='toggle_button' value='";
   html += notificationsMuted == 1 ? "Turn On" : "Turn Off";
   html += "' onclick='toggle()'>";
   html += "</br>";
 
-  sprintf(httpStr, "Last boot:  %s</br>", dateTime);
+  // Longest string example, 41 chars: Last boot:  10:08:09 AM, 11/28/2021</br>\0
+  snprintf(httpStr, 41, "Last boot:  %s</br>", dateTime);
   html += httpStr;
   millisToDaysHoursMinutes(millis() - systemBootTime, currentTime, 40);
-  sprintf(httpStr, "System uptime:  %s</br>", currentTime);
+  // Longest string example, 56 chars: System uptime:  9999 days, 23 hours and 59 minutes</br>\0
+  snprintf(httpStr, 56, "System uptime:  %s</br>", currentTime);
   html += httpStr;
   html += "</span>";
   
@@ -920,12 +930,14 @@ void loop() {
           // A is dead; B is not. Trust B. --> Set A as the outlier
           outlyingSensor = sensorMap[lastTwoSensorIndecies[0]].stickerId;
           String strTemp = String(tempB);
-          sprintf(charErrorMessage, "!ALERT! Sensor %d is dead, and has been blacklisted. You only have ONE functioning sensor now, Sensor %d. It reads %s. I'm gonna go with that because it's all I got left. You really need to come fix me! Seriously.\0", outlyingSensor, sensorMap[lastTwoSensorIndecies[1]].stickerId, strTemp.c_str());
+          // Longest string example, 221 chars: !ALERT! Sensor 999 is dead, and has been blacklisted. You only have ONE functioning sensor now, Sensor 999. It reads -196.60. I'm gonna go with that because it's all I got left. You really need to come fix me! Seriously.\0
+          snprintf(charErrorMessage, 221, "!ALERT! Sensor %d is dead, and has been blacklisted. You only have ONE functioning sensor now, Sensor %d. It reads %s. I'm gonna go with that because it's all I got left. You really need to come fix me! Seriously.\0", outlyingSensor, sensorMap[lastTwoSensorIndecies[1]].stickerId, strTemp.c_str());
         } else if (tempA != TEMP_SENSOR_DISCONNECTED && tempB == TEMP_SENSOR_DISCONNECTED) {
           // B is dead; A is not. Trust A. --> Set B as the outlier
           outlyingSensor = sensorMap[lastTwoSensorIndecies[1]].stickerId;
           String strTemp = String(tempA);
-          sprintf(charErrorMessage, "!ALERT! Sensor %d is dead, and has been blacklisted. You only have ONE functioning sensor now, Sensor %d. It reads %s. I'm gonna go with that because it's all I got left. You really need to come fix me! Seriously.\0", outlyingSensor, sensorMap[lastTwoSensorIndecies[0]].stickerId, strTemp.c_str());
+          // Longest string example, 221 chars: !ALERT! Sensor 999 is dead, and has been blacklisted. You only have ONE functioning sensor now, Sensor 999. It reads -196.60. I'm gonna go with that because it's all I got left. You really need to come fix me! Seriously.\0
+          snprintf(charErrorMessage, 221, "!ALERT! Sensor %d is dead, and has been blacklisted. You only have ONE functioning sensor now, Sensor %d. It reads %s. I'm gonna go with that because it's all I got left. You really need to come fix me! Seriously.\0", outlyingSensor, sensorMap[lastTwoSensorIndecies[0]].stickerId, strTemp.c_str());
         } else {
           // Ok, so the 2 remaining sensors are not in agreement, and the "bad" one is not obvious.
           // This is BAD. Real bad.
@@ -933,7 +945,8 @@ void loop() {
           // Send message to the cloud
           String strTempA = String(tempA);
           String strTempB = String(tempB);
-          sprintf(charErrorMessage, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
+          // Longest string example, 262 chars: !ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor 999 says -196.60, and Sensor 999 says -196.60, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0
+          snprintf(charErrorMessage, 262, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
           
           Serial.println(charErrorMessage);
           sendMessageToAWS(charErrorMessage);
@@ -975,7 +988,8 @@ void loop() {
 
         // Send message to the cloud
         String strOutlyingReading = String(outlyingTemp);
-        sprintf(charErrorMessage, "ALERT! Sensor %d is off in the weeds with a reading of %s. It has been blacklisted. You can try a reboot to see if the problem goes away. If you end up replacing it, call Daniel. The procedure is not straightforward.\0", outlyingSensor, strOutlyingReading.c_str());
+        // Longest string example, 223 chars: ALERT! Sensor 999 is off in the weeds with a reading of -196.60. It has been blacklisted. You can try a reboot to see if the problem goes away. If you end up replacing it, call Daniel. The procedure is not straightforward.\0
+        snprintf(charErrorMessage, 223, "ALERT! Sensor %d is off in the weeds with a reading of %s. It has been blacklisted. You can try a reboot to see if the problem goes away. If you end up replacing it, call Daniel. The procedure is not straightforward.\0", outlyingSensor, strOutlyingReading.c_str());
         Serial.println(charErrorMessage);
       }
 
@@ -1002,7 +1016,8 @@ void loop() {
       int oneSensor = 0;
       for (int i = 0; i < NUMBER_OF_SENSORS; i++) if (!sensorMap[i].blacklisted && sensorMap[i].location == tank) { oneSensor = sensorMap[i].stickerId; break; }
       String oneSensorTemp = String(trustedTemp);
-      sprintf(charErrorMessage, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
+      // Longest string example, 77 chars: ALERT! I'm limping along with only ONE sensor right now! Sensor 999: -196.60\0
+      snprintf(charErrorMessage, 77, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
       if (oneSensorNagSent = sendMessageToAWS(charErrorMessage)) {
         // Reset the timer
         millisSinceOneSensorTimerNagSent = 0;
@@ -1049,7 +1064,8 @@ void loop() {
       // This is bad. The temperature is not correcting.
       // Say something!
       dtostrf(trustedTemp, 4, 2, tempFloat);
-      sprintf(charErrorMessage, "ALERT: Temperature has been out of range for %d seconds. It is now %s!\0", correctionTimer / 1000, tempFloat);
+      // Longest string example, 80 chars: ALERT: Temperature has been out of range for 201600 seconds. It is now -196.60!\0
+      snprintf(charErrorMessage, 80, "ALERT: Temperature has been out of range for %d seconds. It is now %s!\0", correctionTimer / 1000, tempFloat);
       Serial.println(charErrorMessage);
     }
   }
@@ -1095,14 +1111,16 @@ void loop() {
     // This is very bad. The temp should never, ever get this low.
     pendingAlert = true;
     dtostrf(trustedTemp, 4, 2, tempFloat);
-    sprintf(charErrorMessage, "DANGER: Temperature has dropped to %s\0", tempFloat);
+    // Longest string example, 43 chars: DANGER: Temperature has dropped to -196.60\0
+    snprintf(charErrorMessage, 43, "DANGER: Temperature has dropped to %s\0", tempFloat);
     extremeLowTempAlertPending = true;
     extremeLowTempAlertSent = false;
   } else if (trustedTemp >= TEMP_ABSOLUTE_UPPER && !extremeHighTempAlertSent) {
     // This is very bad. The temp should never, ever get this high.
     pendingAlert = true;
     dtostrf(trustedTemp, 4, 2, tempFloat);
-    sprintf(charErrorMessage, "DANGER: Temperature has risen to %s\0", tempFloat);
+    // Longest string example, 41 chars: DANGER: Temperature has risen to -196.60\0
+    snprintf(charErrorMessage, 41, "DANGER: Temperature has risen to %s\0", tempFloat);
     extremeHighTempAlertPending = true;
     extremeHighTempAlertSent = false;
   } else {
@@ -1119,7 +1137,8 @@ void loop() {
       tempOutOfRangeForTooLong = false;
 
       String strRecoveredTemp = String(trustedTemp);
-      sprintf(charErrorMessage, "Looks like we're back in range again. Temperature is now %s\0", strRecoveredTemp.c_str());
+      // Longest string example, 65 chars: Looks like we're back in range again. Temperature is now -196.60\0
+      snprintf(charErrorMessage, 65, "Looks like we're back in range again. Temperature is now %s\0", strRecoveredTemp.c_str());
       pendingAlert = true;
       Serial.println(charErrorMessage);
     }
