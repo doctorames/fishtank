@@ -56,7 +56,11 @@ char pass[] = "aaadaa001";
 #define TEMP_BOILER_LOWER_TRIGGER  89.00      // If the boiler is at or below this temp, turn off the pump unconditionally
 
 // Time-outs and retry thresholds
-#define MAX_WIFI_ATTEMPTS   120               // Reboot if we can't connect after this many attempts
+#define MAX_WIFI_WAIT       6                 // Wait this many seconds for a wifi connection attempt to complete. I've found it rarely takes more than 3 seconds.
+                                              // You don't want to be too generous with this wait time. While it's waiting, the system isn't doing anything else.
+                                              // In other words, if you set it to something silly like 10 minutes, and it can't reconnect (maybe the router died),
+                                              // then it will spend 10 minutes ignoring your fishtank while it spins in a wait loop. You wanna keep this value as
+                                              // low as you can. If it can't connect in the time allotted, don't worry, it will try again later.
 #define LCD_TIMEOUT  5000                     // LCD screen will turn off after this amount of time
 #define AWS_MAX_RECONNECT_TRIES 50            // How many times we should attempt to connect to AWS
 #define HTTP_INCOMING_REQ_TIMEOUT 4000uL      // Catching incoming http requests is appallingly hit or miss. It can sit forever waiting for a missed GET. Never wait longer than this amount.
@@ -79,7 +83,7 @@ const int   daylightOffset_sec = 3600;
 struct tm timeinfo_boot;
 struct tm timeinfo_pumpState;
 
-bool internetIsUp = false;  // todo: make logic to deal with failed connectivity
+bool otaHasBeenSetup = false;
 bool lcdIsOn = false;
 IPAddress localIP;
 unsigned long lcdTimeoutCounter = 0;
@@ -262,7 +266,14 @@ bool compareAddresses(DeviceAddress a, DeviceAddress b) {
 
 bool connectToAWS()
 {
-  if (!internetIsUp) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+     // We're down for some reason. Try to connect.
+     connectToWifi();
+     if (WiFi.status() != WL_CONNECTED) {
+        // Reconnect failed. Not much we can do.
+        return false;
+     }
+  }
 
   // Configure WiFiClientSecure to use the AWS certificates we generated
   net.setCACert(AWS_CERT_CA);
@@ -301,9 +312,11 @@ bool sendMessageToAWS(const char* message)
   Serial.println("sendMessageToAws() DISABLED!!");
   return true;
 #endif
-  if (!internetIsUp) return false;
   char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
-  if (notificationsMuted == 1) { Serial.println("sendMessageToAws() DISABLED. Notifications muted."); return true;}
+  if (notificationsMuted == 1) {
+     Serial.println("sendMessageToAws() DISABLED. Notifications muted.");
+     return true;
+  }
   if (!connectToAWS()) {
       // this is no bueno
       return false;
@@ -470,7 +483,10 @@ char* getSystemStatus() {
   return systemStatusPageStr;
 }
 
-bool setupOta() {
+void setupOta() {
+  
+  if (otaHasBeenSetup) return;
+
   server.on("/", HTTP_GET, []() {
     server.sendHeader("Connection", "close");
     server.send(200, "text/html", getSystemStatus());
@@ -512,10 +528,50 @@ bool setupOta() {
     }
   });
   server.begin();
+  Serial.println("Web server initialized");
+  otaHasBeenSetup = true;
 }
 
-bool restartInternetServices() {
-  // todo
+void connectToWifi()
+{
+  int dotLocation = 13;
+  int dots = 0;
+  int wifiRetries = 0;
+  Serial.print("WiFi is down. Connecting");
+  lcd.backlight();
+  lcdIsOn = true;
+  lcd.setCursor(0,0);
+  lcd.print("Connecting to");
+  lcd.setCursor(0,1);
+  lcd.print(ssid);
+  WiFi.begin(ssid, pass);
+  while (WiFi.status() != WL_CONNECTED && wifiRetries < MAX_WIFI_WAIT) {
+    delay(1000);
+    wifiRetries++;
+    Serial.print(".");
+    if (dots == 0) {
+      lcd.setCursor(dotLocation,0);
+      lcd.print(".  ");
+      dots++;
+    } else if (dots == 1) {
+      lcd.setCursor(dotLocation,0);
+      lcd.print(".. ");
+      dots++;
+    } else if (dots == 2) {
+      lcd.setCursor(dotLocation,0);
+      lcd.print("...");
+      dots = 0;
+    }
+  }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+     Serial.println("WiFi connected");
+     // setupOta will only do its thing once per boot,
+     // so it's ok to call it every time we connect. It won't duplicate its work.
+     setupOta();
+  } else {
+     Serial.println("WiFi failed to connect");
+  }
 }
 
 String getResetReasonString(RESET_REASON reason)
@@ -602,7 +658,6 @@ void IRAM_ATTR WaitVector() {
 
 
 bool senorsInitialized = false;
-int wifiRetries = 0;
 byte recoveryByte = 0;
 void setup() {
   Serial.begin(115200);
@@ -611,50 +666,17 @@ void setup() {
   EEPROM.begin(EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS);
 
   // init LCD
-  int dotLocation = 13;
-  int dots = 0;
   lcd.init();
-  lcd.backlight();
-  lcdIsOn = true;
-  lcd.setCursor(0,0);
-  lcd.print("Connecting to");
-  lcd.setCursor(0,1);
-  lcd.print(ssid);
 
-  WiFi.begin(ssid, pass);
-  Serial.print("Connecting to: ");
-  Serial.print(ssid);
-  while (WiFi.status() != WL_CONNECTED && wifiRetries < MAX_WIFI_ATTEMPTS) {
-    delay(1000);
-    wifiRetries++;
-    Serial.print(".");
-    if (dots == 0) {
-      lcd.setCursor(dotLocation,0);
-      lcd.print(".  ");
-      dots++;
-    } else if (dots == 1) {
-      lcd.setCursor(dotLocation,0);
-      lcd.print(".. ");
-      dots++;
-    } else if (dots == 2) {
-      lcd.setCursor(dotLocation,0);
-      lcd.print("...");
-      dots = 0;
-    }
-  }
-  Serial.println();
-  if (wifiRetries >= MAX_WIFI_ATTEMPTS) {
-    // Could not connect
-    internetIsUp = false;
-  } else {
-    internetIsUp = true;
+  connectToWifi();
+
+  if (WiFi.status() == WL_CONNECTED) {
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     getLocalTime(&timeinfo_boot);
     systemBootTime = millis();
     // Initialize pump state time to something.
     // If the temperature is in range, then the code path to set the pump state time will not be followed.
     memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
-    setupOta();
   }
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
@@ -811,6 +833,12 @@ void setup() {
 
 
 void loop() {
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    // that's the wifi deid
+    connectToWifi();
+  }
+
   sensors.requestTemperatures();
 
   if (pendingAlert) {
