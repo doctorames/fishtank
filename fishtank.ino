@@ -13,6 +13,7 @@
 
 #include "certs.h"
 
+#define VERSION  "1.3"
 #define DEBUG 0
 #define PRODUCTION_UNIT 1
 
@@ -473,13 +474,16 @@ char* getSystemStatus() {
   // Longest string example, 56 chars: System uptime:  9999 days, 23 hours and 59 minutes</br>\0
   snprintf(httpStr, 56, "System uptime:  %s</br>", currentTime);
   html += httpStr;
+  html += "</span><span style=\"font-size:20px\">";
+  html += "Version: ";
+  html += VERSION;
   html += "</span>";
   
   // Close it off
   html += "</p></body></html>";
 
   memset(systemStatusPageStr, 0, SYS_STATUS_PAGE_STR_LEN);
-  html.toCharArray(systemStatusPageStr, html.length());
+  html.toCharArray(systemStatusPageStr, html.length() + 1);
   return systemStatusPageStr;
 }
 
