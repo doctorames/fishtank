@@ -56,7 +56,11 @@ char pass[] = "aaadaa001";
 #define TEMP_BOILER_LOWER_TRIGGER  89.00      // If the boiler is at or below this temp, turn off the pump unconditionally
 
 // Time-outs and retry thresholds
-#define MAX_WIFI_ATTEMPTS   6                 // Reboot if we can't connect after this many attempts
+#define MAX_WIFI_WAIT       6                 // Wait this many seconds for a wifi connection attempt to complete. I've found it rarely takes more than 3 seconds.
+                                              // You don't want to be too generous with this wait time. While it's waiting, the system isn't doing anything else.
+                                              // In other words, if you set it to something silly like 10 minutes, and it can't reconnect (maybe the router died),
+                                              // then it will spend 10 minutes ignoring your fishtank while it spins in a wait loop. You wanna keep this value as
+                                              // low as you can. If it can't connect in the time allotted, don't worry, it will try again later.
 #define LCD_TIMEOUT  5000                     // LCD screen will turn off after this amount of time
 #define AWS_MAX_RECONNECT_TRIES 50            // How many times we should attempt to connect to AWS
 #define HTTP_INCOMING_REQ_TIMEOUT 4000uL      // Catching incoming http requests is appallingly hit or miss. It can sit forever waiting for a missed GET. Never wait longer than this amount.
@@ -541,7 +545,7 @@ void connectToWifi()
   lcd.setCursor(0,1);
   lcd.print(ssid);
   WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED && wifiRetries < MAX_WIFI_ATTEMPTS) {
+  while (WiFi.status() != WL_CONNECTED && wifiRetries < MAX_WIFI_WAIT) {
     delay(1000);
     wifiRetries++;
     Serial.print(".");
