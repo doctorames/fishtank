@@ -56,7 +56,7 @@ char pass[] = "aaadaa001";
 #define TEMP_BOILER_LOWER_TRIGGER  89.00      // If the boiler is at or below this temp, turn off the pump unconditionally
 
 // Time-outs and retry thresholds
-#define MAX_WIFI_ATTEMPTS   120               // Reboot if we can't connect after this many attempts
+#define MAX_WIFI_ATTEMPTS   6                 // Reboot if we can't connect after this many attempts
 #define LCD_TIMEOUT  5000                     // LCD screen will turn off after this amount of time
 #define AWS_MAX_RECONNECT_TRIES 50            // How many times we should attempt to connect to AWS
 #define HTTP_INCOMING_REQ_TIMEOUT 4000uL      // Catching incoming http requests is appallingly hit or miss. It can sit forever waiting for a missed GET. Never wait longer than this amount.
