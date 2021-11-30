@@ -541,9 +541,13 @@ void connectToWifi()
   int dotLocation = 13;
   int dots = 0;
   int wifiRetries = 0;
+  if (!lcdIsOn) {
+    lcd.display();
+    lcd.backlight();
+    lcdIsOn = true;
+  }
+  lcd.clear();
   Serial.print("WiFi is down. Connecting");
-  lcd.backlight();
-  lcdIsOn = true;
   lcd.setCursor(0,0);
   lcd.print("Connecting to");
   lcd.setCursor(0,1);
