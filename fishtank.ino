@@ -22,7 +22,7 @@ char ssid[] = "ATT4meZ5qR";
 char pass[] = "7xj%4%82sxz5";
 #else
 char ssid[] = "ames";
-char pass[] = "aaadaa001";
+char pass[] = "aaadaa00x";
 #endif
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
@@ -78,6 +78,7 @@ char pass[] = "aaadaa001";
 WiFiClientSecure net = WiFiClientSecure();
 MQTTClient client = MQTTClient(512);
 
+bool timeInitialized = false;
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -21600;
 const int   daylightOffset_sec = 3600;
@@ -573,7 +574,17 @@ void connectToWifi()
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-     Serial.println("WiFi connected");
+    Serial.println("WiFi connected");
+    if (!timeInitialized) {
+      // Looks like this is our first time successfully connecting.
+      // Setup the time stuff
+      configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+      getLocalTime(&timeinfo_boot);
+      // Initialize pump state time to something.
+      // If the temperature is in range, then the code path to set the pump state time will not be followed.
+      memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
+      timeInitialized = true;
+     }
      // setupOta will only do its thing once per boot,
      // so it's ok to call it every time we connect. It won't duplicate its work.
      setupOta();
@@ -670,6 +681,7 @@ byte recoveryByte = 0;
 void setup() {
   Serial.begin(115200);
   delay(500);
+  systemBootTime = millis();
 
   EEPROM.begin(EEPROM_RECOVERY_NUMBER_OF_BYTES_TO_ACCESS);
 
@@ -677,15 +689,6 @@ void setup() {
   lcd.init();
 
   connectToWifi();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    getLocalTime(&timeinfo_boot);
-    systemBootTime = millis();
-    // Initialize pump state time to something.
-    // If the temperature is in range, then the code path to set the pump state time will not be followed.
-    memcpy(&timeinfo_pumpState, &timeinfo_boot, sizeof(timeinfo_boot));
-  }
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
