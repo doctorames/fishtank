@@ -576,6 +576,7 @@ void connectToWifi()
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("WiFi connected");
     if (!timeInitialized) {
+      Serial.println("Initializing local time");
       // Looks like this is our first time successfully connecting.
       // Setup the time stuff
       configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
