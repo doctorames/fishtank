@@ -22,7 +22,7 @@ char ssid[] = "ATT4meZ5qR";
 char pass[] = "7xj%4%82sxz5";
 #else
 char ssid[] = "ames";
-char pass[] = "aaadaa00x";
+char pass[] = "aaadaa001";
 #endif
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
