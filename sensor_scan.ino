@@ -32,13 +32,18 @@ void setup()
   sensors.begin();
 
   DeviceAddress addr;
-  if (sensors.getAddress(addr, 0)) {
-    Serial.print("Address: ");
-    printDeviceAddress(addr);
-    Serial.println();
-  } else {
-    Serial.print("No sensor at bus index ");
-    Serial.println(0);
+  for(int i = 0; i < 5; i++) // look for 5 sensors: 3 tank, 1 ambient, 1 boiler
+  {
+    if (sensors.getAddress(addr, i)) {
+      Serial.print("Index ");
+      Serial.print(i);
+      Serial.print(" address: ");
+      printDeviceAddress(addr);
+      Serial.println();
+    } else {
+      Serial.print("No sensor at bus index ");
+      Serial.println(i);
+    }
   }
 }
 
