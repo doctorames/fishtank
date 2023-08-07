@@ -1,0 +1,101 @@
+How to come back to this after forgetting EVERYTHING about the fishtank controller.
+
+Hi, Daniel. It's me, you. That is, I'm you. It's my 42nd bday, the Samsung Watch 5 I got from April for my bday says it's 11:32 am. I'm in Jason's office by myself.
+Peepaw got a new router last week or so and he doesn't want to change the ssid and password on it to match his previous router, which means now the fishtank controller has no wifi connection. Which means I need to update the wifi settings in code to make it work again. No prob.
+
+So here I am trying to figure out how to get arduino setup and building my fishtank code. I just found my old arduino folder in a backup from my last laptop. It looks like this:
+
+D:\p\arduino>dir
+ Volume in drive D is work_area
+ Volume Serial Number is 7CBF-5B6B
+
+ Directory of D:\p\arduino
+
+08/06/2023  11:26 AM    <DIR>          .
+08/06/2023  11:26 AM    <DIR>          ..
+08/06/2023  11:25 AM    <DIR>          ArduinoOutput
+08/06/2023  11:25 AM    <DIR>          AWS_IOT
+12/04/2020  03:07 PM            97,727 AWS_IOT.zip
+08/06/2023  11:25 AM    <DIR>          certs
+08/06/2023  11:25 AM    <DIR>          fishtank
+08/06/2023  11:26 AM    <DIR>          hello_world
+12/13/2018  06:41 PM             2,010 I2CScanner.ino
+08/06/2023  11:26 AM    <DIR>          i2c_scan
+08/06/2023  11:26 AM    <DIR>          lcd_test
+09/15/2020  12:52 PM            15,704 OneWire.zip
+08/06/2023  11:26 AM    <DIR>          OneWire_2.2
+08/06/2023  11:26 AM    <DIR>          OneWire_2.3
+08/06/2023  11:26 AM    <DIR>          sha256
+08/06/2023  11:26 AM    <DIR>          sketch_sep15a
+08/06/2023  11:26 AM    <DIR>          test
+01/03/2021  12:32 PM               185 test.html
+08/06/2023  11:26 AM    <DIR>          wifi_sep28a
+               4 File(s)        115,626 bytes
+              15 Dir(s)  1,534,195,138,560 bytes free
+
+D:\p\arduino>cd fishtank
+
+D:\p\arduino\fishtank>dir
+ Volume in drive D is work_area
+ Volume Serial Number is 7CBF-5B6B
+
+ Directory of D:\p\arduino\fishtank
+
+08/06/2023  11:25 AM    <DIR>          .
+08/06/2023  11:25 AM    <DIR>          ..
+01/04/2021  10:00 AM                23 .gitignore
+08/06/2023  11:25 AM    <DIR>          build
+01/04/2021  09:39 AM             4,778 certs.h
+12/21/2021  10:55 AM                75 cmakelists.txt
+08/06/2023  11:28 AM            45,782 fishtank.ino
+11/27/2021  10:19 AM               147 hammer.bat
+12/21/2021  09:41 AM               214 idf.c
+11/27/2021  11:30 AM               571 out.html
+12/05/2021  02:17 PM           768,038 schematic.jpeg
+12/21/2021  09:39 AM             5,724 sd.ino
+12/06/2021  08:41 AM            56,487 sd_schematic.JPG
+01/10/2021  10:21 AM             1,094 sensor_scan.ino
+11/29/2021  09:38 AM             5,786 test.ino
+              12 File(s)        888,719 bytes
+               3 Dir(s)  1,534,195,138,560 bytes free
+
+D:\p\arduino\fishtank>
+
+If you can't find any of this, you're kinda screwed because you need the certs.h file. (That's really alls you need that's not on github, for obvious reasons)
+
+I just downloaded the latest arduino sw/ide or whatever. v2.1.1 as of this writing. After opening it, it downloaded some other things and prompted to install unknown drivers. Prompted me a few times.
+
+I just opened up the fishtank folder in vscode. And that's when it hit me to start writing this to document my journey of figuring this out again. Hopefully this helps you when you have to do this again for whatever reason.
+
+EDIT: So I deleted a lot of play-by-play notes of all the troubles I ran into and collapsed everything into the following:
+
+!!!DON'T "OPEN" THE FISHTANK INO FILE IN THE IDE!!! That will cause it to open every single ino file in the dir, which will cause it to try to compile every ino file in the dir. So stupid. You have to either work from a 'new' sketch by pasting in the code into the code window, or just work from the arduino_workspace in the Arduino folder (I just made it. like, just now). I copied the certs.h file into it.
+
+After plugging in your ESP32, you might see a "CP2102 USB to UART Bridge Controller" as an unknown device in device manager. You need the drivers for it.
+I found mine here: https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
+I went ahead and saved a copy of it in the arduino folder, "CP210x_Universal_Windows_Driver"
+Install it onto the unknown device. You'll get a new com port. That's your guy.
+
+Open ide if you haven't.
+Go to Baords Manager. Look for and install "esp32 by Espressif Systems".
+Now select the Node32s board (Tools > Board > esp32 > Node32s)
+
+Now select the com port. e.g. Tools > Port > COM7.
+
+Go ahead and open the serial monitor to see if it's doing anything. Tools > Serial monitor. Set baud to 115200.
+If you don't see anything it's prolly just doing its main loop which pretty quiet. Try resetting the board by pressing the button that says "EN"
+
+When trying to compile, I ran into a lot of missing header files. Long story short, install these libs. The versions you see here are what was latest at the time of this writing. They are what I used. You can prolly go with the latest for you. I wrote them down here just in case you find yourself needing a known working recipe, y'know?
+
+
+MQTT by Joel Gaehwiler v2.5.1 (https://github.com/256dpi/arduino-mqtt)
+ArduinoJson by Benoit Blanchon v6.21.3 (https://arduinojson.org/?utm_source=meta&utm_medium=library.properties)
+DallasTemperature by Miles Burton v3.9.0 (https://github.com/milesburton/Arduino-Temperature-Control-Library)
+-this also installed OneWire v2.3.7 as a dependency
+LiquidCrystal_I2C by Frank de Brabander v1.1.2 (https://github.com/johnrickman/LiquidCrystal_I2C)
+
+
+That's it!
+
+Now you can do your normal dev in vscode (but supposedly the arduino ide is much better now with intellisense and debugging and whatnot.. idunno. meybe you can try it), and then COPY-PASTE whatever you type in vscode into the arduino_workspace.ino file in the arduino ide. Compile, upload, export compiled binary from there.
+
