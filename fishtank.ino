@@ -13,16 +13,16 @@
 
 #include "certs.h"
 
-#define VERSION  "1.3"
+#define VERSION  "1.4"
 #define DEBUG 0
 #define PRODUCTION_UNIT 1
 
 #if PRODUCTION_UNIT
-char ssid[] = "ATT4meZ5qR";
-char pass[] = "7xj%4%82sxz5";
+char ssid[] = "ATT3HQ3Bhl";
+char pass[] = "9z=ba=684snb";
 #else
-char ssid[] = "ames";
-char pass[] = "aaadaa001";
+char ssid[] = "CenturyLink9630";
+char pass[] = "fdk3d84aap6cpe";
 #endif
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
@@ -220,7 +220,7 @@ SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
   { 0xff, (byte)1, false, tank,    {0x28, 0x6B, 0xB7, 0x07, 0xD6, 0x01, 0x3C, 0xAC}}, // purple
   { 0xff, (byte)2, false, tank,    {0x28, 0x90, 0x2D, 0x07, 0xD6, 0x01, 0x3C, 0x2C}}, // white
   { 0xff, (byte)3, false, tank,    {0x28, 0x16, 0x2C, 0x07, 0xD6, 0x01, 0x3C, 0xB9}}, // green
-  { 0xff, (byte)4, false, ambient, {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}},  // orange
+  { 0xff, (byte)4, false, ambient, {0x28, 0x4F, 0x41, 0x07, 0xB6, 0x01, 0x3C, 0x59}}, // orange
   { 0xff, (byte)5, false, boiler,  {0x28, 0x90, 0x06, 0x07, 0xD6, 0x01, 0x3C, 0xA4}}  // brown
 };
 #endif
