@@ -662,7 +662,7 @@ String getResetReasonString(RESET_REASON reason)
   return String("Unknown ");
 }
 
-bool sendSmtp(const char* messageStr)
+bool sendSmtp(const char* subject, const char* messageStr)
 {
   SMTP_Message message;
   Session_Config config;
@@ -673,11 +673,15 @@ bool sendSmtp(const char* messageStr)
   config.login.password = AUTHOR_PASSWORD;
   config.login.user_domain = F("127.0.0.1");
 
-  message.sender.name = F("ESP Mail");
+  message.sender.name = F("Fishtank");
   message.sender.email = AUTHOR_EMAIL;
 
-  message.subject = F("From fishtank");
-  message.addRecipient(F("Someone"), RECIPIENT_EMAIL);
+  message.subject = subject;
+  #if PRODUCTION_UNIT
+  message.addRecipient(F("David Adams"), RECIPIENT_EMAIL1);
+  #endif
+  message.addRecipient(F("Daniel Ames"), RECIPIENT_EMAIL2);
+
 
   String textMsg = messageStr;
   message.text.content = textMsg;
@@ -787,7 +791,7 @@ void setup() {
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
   if (reason_cpu0 == POWERON_RESET) {
     // Just say there was a power failure
-    sendSmtp("Fishtank controller has recovered from a power failure.");
+    sendSmtp("Power recovery", "Fishtank controller has recovered from a power failure.");
   } else {
     // This was something weirder than a power blip/failure.
     // I need to know what it was.
@@ -798,7 +802,7 @@ void setup() {
     recoveryMessage += "\nCPU1 Reason: ";
     recoveryMessage += getResetReasonString(reason_cpu1);
     recoveryMessage.toCharArray(str, recoveryMessage.length());
-    sendSmtp(str);
+    sendSmtp("Power recovery", str);
   }
 
 
@@ -855,7 +859,7 @@ void setup() {
       EEPROM.commit();
     }
 
-    if (sendSmtp("!ALERT! Could not connect to temperature probes!\nI'M COMPLETELY DOWN!\nGet out here and fix me now!!")) {
+    if (sendSmtp("!ALERT!", "!ALERT! Could not connect to temperature probes!\nI'M COMPLETELY DOWN!\nGet out here and fix me now!!")) {
       // Couldn't find any sensors, but we managed to send out an alert.
       // Go to deep sleep and try again in an hour.
       Serial.println("Alert sent. Going to deep sleep...");
@@ -876,7 +880,7 @@ void setup() {
       // Let the user know everything is ok now.
       EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)0);
       EEPROM.commit();
-      sendSmtp("Sensors are responding now. A reboot seems to have fixed it.\nStill... that's not supposed to happen. Maybe go check the connections.");
+      sendSmtp("All better", "Sensors are responding now. A reboot seems to have fixed it.\nStill... that's not supposed to happen. Maybe go check the connections.");
       Serial.println("Warning: Previously recovered from a sensor failure.");
     }
   }
@@ -949,7 +953,7 @@ void loop() {
     // If sendSmtp fails, set pendingAlert to true so it keeps trying.
     // Don't give up until the error gets out!
     Serial.println("Sending message to AWS:");
-    pendingAlert = !sendSmtp(charErrorMessage);
+    pendingAlert = !sendSmtp("ALERT", charErrorMessage);
     if (!pendingAlert) {
       // Alert sent successfully
       Serial.println("Message sent successfully.");
@@ -1021,7 +1025,6 @@ void loop() {
       lcd.print("Notifications");
       lcd.setCursor(0,1);
       lcd.print(EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE) == 1 ? "are OFF" : "are ON");
-      sendSmtp("from the code");
     }
     pushButtonSemaphore = 0;
   }
@@ -1082,7 +1085,7 @@ void loop() {
           snprintf(charErrorMessage, 262, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
           
           Serial.println(charErrorMessage);
-          sendSmtp(charErrorMessage);
+          sendSmtp("ALERT", charErrorMessage);
 
           EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)EEPROM_RECOVERY_WHAT_TO_BELIEVE);
           EEPROM.commit();
@@ -1138,7 +1141,7 @@ void loop() {
         recoveryByte = 0;
         EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)0);
         EEPROM.commit();
-        sendSmtp("Ok, looks like we were having issues with sensors going off in the weeds, but I have rebooted and that appears to have resolved it. Still, that's not supposed to happen. Maybe check my connections, make sure the fish aren't messing with my senors, etc.");
+        sendSmtp("All better", "Ok, looks like we were having issues with sensors going off in the weeds, but I have rebooted and that appears to have resolved it. Still, that's not supposed to happen. Maybe check my connections, make sure the fish aren't messing with my senors, etc.");
       }
     }
   } else {
@@ -1151,7 +1154,7 @@ void loop() {
       String oneSensorTemp = String(trustedTemp);
       // Longest string example, 77 chars: ALERT! I'm limping along with only ONE sensor right now! Sensor 999: -196.60\0
       snprintf(charErrorMessage, 77, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
-      if (oneSensorNagSent = sendSmtp(charErrorMessage)) {
+      if (oneSensorNagSent = sendSmtp("ALERT", charErrorMessage)) {
         // Reset the timer
         millisSinceOneSensorTimerNagSent = 0;
         currentOneSensorTimerTick = lastOneSensorTimerTick = millis();
