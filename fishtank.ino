@@ -15,7 +15,7 @@
 #include "certs.h"
 #include "email.h"
 
-#define VERSION  "1.4"
+#define VERSION  "1.5"
 #define DEBUG 0
 #define PRODUCTION_UNIT 0
 
@@ -662,7 +662,7 @@ String getResetReasonString(RESET_REASON reason)
   return String("Unknown ");
 }
 
-void sendSmtp()
+bool sendSmtp(const char* messageStr)
 {
   SMTP_Message message;
   Session_Config config;
@@ -679,7 +679,7 @@ void sendSmtp()
   message.subject = F("From fishtank");
   message.addRecipient(F("Someone"), RECIPIENT_EMAIL);
 
-  String textMsg = "floopin flarpin flarpity floop";
+  String textMsg = messageStr;
   message.text.content = textMsg;
 
   message.text.charSet = F("us-ascii");
@@ -693,7 +693,7 @@ void sendSmtp()
   if (!smtp.connect(&config))
   {
     MailClient.printf("Connection error, Status Code: %d, Error Code: %d, Reason: %s\n", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
-    return;
+    return false;
   }
 
   if (smtp.isAuthenticated())
@@ -702,7 +702,12 @@ void sendSmtp()
     Serial.println("Connected with no Auth.");
   
   if (!MailClient.sendMail(&smtp, &message))
+  {
     MailClient.printf("Error, Status Code: %d, Error Code: %d, Reason: %s\n", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+    return false;
+  }
+
+  return true;
 }
 
 
@@ -782,7 +787,7 @@ void setup() {
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
   if (reason_cpu0 == POWERON_RESET) {
     // Just say there was a power failure
-    sendMessageToAWS("Fishtank controller has recovered from a power failure.");
+    sendSmtp("Fishtank controller has recovered from a power failure.");
   } else {
     // This was something weirder than a power blip/failure.
     // I need to know what it was.
@@ -793,7 +798,7 @@ void setup() {
     recoveryMessage += "\nCPU1 Reason: ";
     recoveryMessage += getResetReasonString(reason_cpu1);
     recoveryMessage.toCharArray(str, recoveryMessage.length());
-    sendMessageToAWS(str);
+    sendSmtp(str);
   }
 
 
@@ -850,7 +855,7 @@ void setup() {
       EEPROM.commit();
     }
 
-    if (sendMessageToAWS("!ALERT! Could not connect to temperature probes!\nI'M COMPLETELY DOWN!\nGet out here and fix me now!!")) {
+    if (sendSmtp("!ALERT! Could not connect to temperature probes!\nI'M COMPLETELY DOWN!\nGet out here and fix me now!!")) {
       // Couldn't find any sensors, but we managed to send out an alert.
       // Go to deep sleep and try again in an hour.
       Serial.println("Alert sent. Going to deep sleep...");
@@ -871,7 +876,7 @@ void setup() {
       // Let the user know everything is ok now.
       EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)0);
       EEPROM.commit();
-      sendMessageToAWS("Sensors are responding now. A reboot seems to have fixed it.\nStill... that's not supposed to happen. Maybe go check the connections.");
+      sendSmtp("Sensors are responding now. A reboot seems to have fixed it.\nStill... that's not supposed to happen. Maybe go check the connections.");
       Serial.println("Warning: Previously recovered from a sensor failure.");
     }
   }
@@ -941,10 +946,10 @@ void loop() {
   sensors.requestTemperatures();
 
   if (pendingAlert) {
-    // If sendMessageToAWS fails, set pendingAlert to true so it keeps trying.
+    // If sendSmtp fails, set pendingAlert to true so it keeps trying.
     // Don't give up until the error gets out!
     Serial.println("Sending message to AWS:");
-    pendingAlert = !sendMessageToAWS(charErrorMessage);
+    pendingAlert = !sendSmtp(charErrorMessage);
     if (!pendingAlert) {
       // Alert sent successfully
       Serial.println("Message sent successfully.");
@@ -1016,7 +1021,7 @@ void loop() {
       lcd.print("Notifications");
       lcd.setCursor(0,1);
       lcd.print(EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE) == 1 ? "are OFF" : "are ON");
-      sendSmtp();
+      sendSmtp("from the code");
     }
     pushButtonSemaphore = 0;
   }
@@ -1077,7 +1082,7 @@ void loop() {
           snprintf(charErrorMessage, 262, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
           
           Serial.println(charErrorMessage);
-          sendMessageToAWS(charErrorMessage);
+          sendSmtp(charErrorMessage);
 
           EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)EEPROM_RECOVERY_WHAT_TO_BELIEVE);
           EEPROM.commit();
@@ -1133,7 +1138,7 @@ void loop() {
         recoveryByte = 0;
         EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)0);
         EEPROM.commit();
-        sendMessageToAWS("Ok, looks like we were having issues with sensors going off in the weeds, but I have rebooted and that appears to have resolved it. Still, that's not supposed to happen. Maybe check my connections, make sure the fish aren't messing with my senors, etc.");
+        sendSmtp("Ok, looks like we were having issues with sensors going off in the weeds, but I have rebooted and that appears to have resolved it. Still, that's not supposed to happen. Maybe check my connections, make sure the fish aren't messing with my senors, etc.");
       }
     }
   } else {
@@ -1146,7 +1151,7 @@ void loop() {
       String oneSensorTemp = String(trustedTemp);
       // Longest string example, 77 chars: ALERT! I'm limping along with only ONE sensor right now! Sensor 999: -196.60\0
       snprintf(charErrorMessage, 77, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
-      if (oneSensorNagSent = sendMessageToAWS(charErrorMessage)) {
+      if (oneSensorNagSent = sendSmtp(charErrorMessage)) {
         // Reset the timer
         millisSinceOneSensorTimerNagSent = 0;
         currentOneSensorTimerTick = lastOneSensorTimerTick = millis();
