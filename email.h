@@ -1,0 +1,6 @@
+
+#define SMTP_HOST "smtp.gmail.com"
+#define SMTP_PORT esp_mail_smtp_port_587 // port 465 is not available for Outlook.com
+#define AUTHOR_EMAIL "adamsfishtank@gmail.com"
+#define AUTHOR_PASSWORD "hozr oapb sdgj oppg"
+#define RECIPIENT_EMAIL "danieladamames@gmail.com"

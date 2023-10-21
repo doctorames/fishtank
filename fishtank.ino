@@ -3,6 +3,7 @@
 #include <WiFiClientSecure.h>
 #include <MQTTClient.h>
 #include <ArduinoJson.h>
+#include <ESP_Mail_Client.h>
 #include <EEPROM.h>
 #include <WebServer.h>
 #include <Update.h>
@@ -12,17 +13,18 @@
 #include "time.h"
 
 #include "certs.h"
+#include "email.h"
 
 #define VERSION  "1.4"
 #define DEBUG 0
-#define PRODUCTION_UNIT 1
+#define PRODUCTION_UNIT 0
 
 #if PRODUCTION_UNIT
 char ssid[] = "ATT3HQ3Bhl";
 char pass[] = "9z=ba=684snb";
 #else
-char ssid[] = "CenturyLink9630";
-char pass[] = "fdk3d84aap6cpe";
+char ssid[] = "AmesRV";
+char pass[] = "aaadaa001";
 #endif
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
@@ -77,6 +79,9 @@ char pass[] = "fdk3d84aap6cpe";
 // Globals
 WiFiClientSecure net = WiFiClientSecure();
 MQTTClient client = MQTTClient(512);
+
+SMTPSession smtp;
+void smtpCallback(SMTP_Status status);
 
 bool timeInitialized = false;
 const char* ntpServer = "pool.ntp.org";
@@ -252,7 +257,45 @@ SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
 
 
 
+void smtpCallback(SMTP_Status status)
+{
+  /* Print the current status */
+  Serial.println(status.info());
 
+  /* Print the sending result */
+  if (status.success())
+  {
+    // MailClient.printf used in the examples is for format printing via debug Serial port
+    // that works for all supported Arduino platform SDKs e.g. SAMD, ESP32 and ESP8266.
+    // In ESP8266 and ESP32, you can use Serial.printf directly.
+
+    Serial.println("----------------");
+    MailClient.printf("Message sent success: %d\n", status.completedCount());
+    MailClient.printf("Message sent failed: %d\n", status.failedCount());
+    Serial.println("----------------\n");
+
+    for (size_t i = 0; i < smtp.sendingResult.size(); i++)
+    {
+      /* Get the result item */
+      SMTP_Result result = smtp.sendingResult.getItem(i);
+
+      // In case, ESP32, ESP8266 and SAMD device, the timestamp get from result.timestamp should be valid if
+      // your device time was synched with NTP server.
+      // Other devices may show invalid timestamp as the device time was not set i.e. it will show Jan 1, 1970.
+      // You can call smtp.setSystemTime(xxx) to set device time manually. Where xxx is timestamp (seconds since Jan 1, 1970)
+
+      MailClient.printf("Message No: %d\n", i + 1);
+      MailClient.printf("Status: %s\n", result.completed ? "success" : "failed");
+      MailClient.printf("Date/Time: %s\n", MailClient.Time.getDateTimeString(result.timestamp, "%B %d, %Y %H:%M:%S").c_str());
+      MailClient.printf("Recipient: %s\n", result.recipients.c_str());
+      MailClient.printf("Subject: %s\n", result.subject.c_str());
+    }
+    Serial.println("----------------\n");
+
+    // You need to clear sending result as the memory usage will grow up.
+    smtp.sendingResult.clear();
+  }
+}
 
 
 bool compareAddresses(DeviceAddress a, DeviceAddress b) {
@@ -619,12 +662,48 @@ String getResetReasonString(RESET_REASON reason)
   return String("Unknown ");
 }
 
+void sendSmtp()
+{
+  SMTP_Message message;
+  Session_Config config;
 
+  config.server.host_name = SMTP_HOST;
+  config.server.port = SMTP_PORT;
+  config.login.email = AUTHOR_EMAIL;
+  config.login.password = AUTHOR_PASSWORD;
+  config.login.user_domain = F("127.0.0.1");
 
+  message.sender.name = F("ESP Mail");
+  message.sender.email = AUTHOR_EMAIL;
 
+  message.subject = F("From fishtank");
+  message.addRecipient(F("Someone"), RECIPIENT_EMAIL);
 
+  String textMsg = "floopin flarpin flarpity floop";
+  message.text.content = textMsg;
 
+  message.text.charSet = F("us-ascii");
+  message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
 
+  message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_low;
+
+  // whatever this is supposed to do
+  message.addHeader(F("Message-ID: <abcde.fghij@gmail.com>"));
+
+  if (!smtp.connect(&config))
+  {
+    MailClient.printf("Connection error, Status Code: %d, Error Code: %d, Reason: %s\n", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+    return;
+  }
+
+  if (smtp.isAuthenticated())
+    Serial.println("Successfully logged in.");
+  else
+    Serial.println("Connected with no Auth.");
+  
+  if (!MailClient.sendMail(&smtp, &message))
+    MailClient.printf("Error, Status Code: %d, Error Code: %d, Reason: %s\n", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+}
 
 
 
@@ -690,6 +769,14 @@ void setup() {
   lcd.init();
 
   connectToWifi();
+
+  MailClient.networkReconnect(true);
+  
+  #if !PRODUCTION_UNIT
+  smtp.debug(1);
+  #endif
+  smtp.callback(smtpCallback);
+  
 
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
@@ -929,6 +1016,7 @@ void loop() {
       lcd.print("Notifications");
       lcd.setCursor(0,1);
       lcd.print(EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE) == 1 ? "are OFF" : "are ON");
+      sendSmtp();
     }
     pushButtonSemaphore = 0;
   }
