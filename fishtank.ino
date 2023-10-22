@@ -1,8 +1,6 @@
 #include <WiFi.h>
 #include <rom/rtc.h>
-#include <WiFiClientSecure.h>
-#include <MQTTClient.h>
-#include <ArduinoJson.h>
+#include <ESP_Mail_Client.h>
 #include <EEPROM.h>
 #include <WebServer.h>
 #include <Update.h>
@@ -11,9 +9,9 @@
 #include <LiquidCrystal_I2C.h>
 #include "time.h"
 
-#include "certs.h"
+#include "email.h"
 
-#define VERSION  "1.4"
+#define VERSION  "1.5"
 #define DEBUG 0
 #define PRODUCTION_UNIT 1
 
@@ -21,8 +19,8 @@
 char ssid[] = "ATT3HQ3Bhl";
 char pass[] = "9z=ba=684snb";
 #else
-char ssid[] = "CenturyLink9630";
-char pass[] = "fdk3d84aap6cpe";
+char ssid[] = "AmesRV";
+char pass[] = "aaadaa001";
 #endif
 
 #define NUMBER_OF_AMBIENT_SENSORS 1
@@ -63,20 +61,14 @@ char pass[] = "fdk3d84aap6cpe";
                                               // then it will spend 10 minutes ignoring your fishtank while it spins in a wait loop. You wanna keep this value as
                                               // low as you can. If it can't connect in the time allotted, don't worry, it will try again later.
 #define LCD_TIMEOUT  5000                     // LCD screen will turn off after this amount of time
-#define AWS_MAX_RECONNECT_TRIES 50            // How many times we should attempt to connect to AWS
 #define HTTP_INCOMING_REQ_TIMEOUT 4000uL      // Catching incoming http requests is appallingly hit or miss. It can sit forever waiting for a missed GET. Never wait longer than this amount.
 #define CORRECTION_TIMEOUT 7200000            // The max amount of time it should take for temperature to return to an acceptable range.
-                                              //   acceptable range = anywhere between TEMP_LOWER_TRIGGER and TEMP_UPPER_TRIGGER
-
-// AWS defines
-#define DEVICE_NAME "fishtemp-controller"     // The name of the device. This MUST match up with the name defined in the AWS console
-#define AWS_IOT_ENDPOINT "a3u6y1u8z9tj3s-ats.iot.us-east-1.amazonaws.com"  // The MQTTT endpoint for the device (unique for each AWS account but shared amongst devices within the account)
-#define AWS_IOT_TOPIC "$aws/things/" DEVICE_NAME "/shadow/update"  // The MQTT topic that this device should publish to
+                                              //   acceptable range = anywhere between TEMP_LOWER_TRIGGER and TEMP_UPPER_TRIGGERs
 
 
 // Globals
-WiFiClientSecure net = WiFiClientSecure();
-MQTTClient client = MQTTClient(512);
+SMTPSession smtp;
+void smtpCallback(SMTP_Status status);
 
 bool timeInitialized = false;
 const char* ntpServer = "pool.ntp.org";
@@ -252,7 +244,45 @@ SensorInfo sensorMap[NUMBER_OF_SENSORS] = {
 
 
 
+void smtpCallback(SMTP_Status status)
+{
+  /* Print the current status */
+  Serial.println(status.info());
 
+  /* Print the sending result */
+  if (status.success())
+  {
+    // MailClient.printf used in the examples is for format printing via debug Serial port
+    // that works for all supported Arduino platform SDKs e.g. SAMD, ESP32 and ESP8266.
+    // In ESP8266 and ESP32, you can use Serial.printf directly.
+
+    Serial.println("----------------");
+    MailClient.printf("Message sent success: %d\n", status.completedCount());
+    MailClient.printf("Message sent failed: %d\n", status.failedCount());
+    Serial.println("----------------\n");
+
+    for (size_t i = 0; i < smtp.sendingResult.size(); i++)
+    {
+      /* Get the result item */
+      SMTP_Result result = smtp.sendingResult.getItem(i);
+
+      // In case, ESP32, ESP8266 and SAMD device, the timestamp get from result.timestamp should be valid if
+      // your device time was synched with NTP server.
+      // Other devices may show invalid timestamp as the device time was not set i.e. it will show Jan 1, 1970.
+      // You can call smtp.setSystemTime(xxx) to set device time manually. Where xxx is timestamp (seconds since Jan 1, 1970)
+
+      MailClient.printf("Message No: %d\n", i + 1);
+      MailClient.printf("Status: %s\n", result.completed ? "success" : "failed");
+      MailClient.printf("Date/Time: %s\n", MailClient.Time.getDateTimeString(result.timestamp, "%B %d, %Y %H:%M:%S").c_str());
+      MailClient.printf("Recipient: %s\n", result.recipients.c_str());
+      MailClient.printf("Subject: %s\n", result.subject.c_str());
+    }
+    Serial.println("----------------\n");
+
+    // You need to clear sending result as the memory usage will grow up.
+    smtp.sendingResult.clear();
+  }
+}
 
 
 bool compareAddresses(DeviceAddress a, DeviceAddress b) {
@@ -264,81 +294,6 @@ bool compareAddresses(DeviceAddress a, DeviceAddress b) {
     }
   }
   return result;
-}
-
-bool connectToAWS()
-{
-  if (WiFi.status() != WL_CONNECTED) {
-     // We're down for some reason. Try to connect.
-     connectToWifi();
-     if (WiFi.status() != WL_CONNECTED) {
-        // Reconnect failed. Not much we can do.
-        return false;
-     }
-  }
-
-  // Configure WiFiClientSecure to use the AWS certificates we generated
-  net.setCACert(AWS_CERT_CA);
-  net.setCertificate(AWS_CERT_CRT);
-  net.setPrivateKey(AWS_CERT_PRIVATE);
-
-  // Connect to the MQTT broker on the AWS endpoint we defined earlier
-  client.begin(AWS_IOT_ENDPOINT, 8883, net);
-
-  // Try to connect to AWS and count how many times we retried.
-  int retries = 0;
-  Serial.print("Connecting to AWS IOT");
-
-  while (!client.connect(DEVICE_NAME) && retries < AWS_MAX_RECONNECT_TRIES) {
-    Serial.print(".");
-    delay(100);
-    retries++;
-  }
-
-  // Make sure that we did indeed successfully connect to the MQTT broker
-  // If not we just end the function and wait for the next loop.
-  if(!client.connected()){
-    Serial.println(" Timeout!");
-    return false;
-  }
-
-  // If we land here, we have successfully connected to AWS!
-  // And we can subscribe to topics and send messages.
-  Serial.println(" ..Connected!");
-  return true;
-}
-
-bool sendMessageToAWS(const char* message)
-{
-#if !PRODUCTION_UNIT
-  Serial.println("sendMessageToAws() DISABLED!!");
-  return true;
-#endif
-  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
-  if (notificationsMuted == 1) {
-     Serial.println("sendMessageToAws() DISABLED. Notifications muted.");
-     return true;
-  }
-  if (!connectToAWS()) {
-      // this is no bueno
-      return false;
-  }
-
-  StaticJsonDocument<512> jsonDoc;
-  JsonObject stateObj = jsonDoc.createNestedObject("state");
-  JsonObject reportedObj = stateObj.createNestedObject("reported");
-  
-  // "Message" is what will actually end up in the SMS message that gets sent.
-  // The AWS SNS rule uses a SQL query to specifically pick this message out of the JSON.
-  reportedObj["message"] = message;
-
-  Serial.println("Publishing message to AWS...");
-  char jsonBuffer[512];
-  serializeJson(jsonDoc, jsonBuffer);
-  bool ret = client.publish(AWS_IOT_TOPIC, jsonBuffer);
-  client.disconnect();
-
-  return ret;
 }
 
 // Returns a timestamp string in the format:
@@ -598,7 +553,7 @@ String getResetReasonString(RESET_REASON reason)
 {
   switch (reason)
   {
-    // Note the trailing spaces. For some reason, AWS trims the last character.
+    // Note the trailing spaces. For some reason, AWS trims the last character. We don't use AWS anymore, but whatever.
     case 1  : return String("POWERON_RESET - power on reset ");break;
     case 3  : return String("SW_RESET - Software reset digital core ");break;
     case 4  : return String("OWDT_RESET - Legacy watch dog reset digital core ");break;
@@ -619,12 +574,63 @@ String getResetReasonString(RESET_REASON reason)
   return String("Unknown ");
 }
 
+bool sendSmtp(const char* subject, const char* messageStr)
+{
+  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
+  if (notificationsMuted == 1) {
+     Serial.println("sendSmtp() DISABLED. Notifications muted.");
+     return true;
+  }
+
+  SMTP_Message message;
+  Session_Config config;
+
+  config.server.host_name = SMTP_HOST;
+  config.server.port = SMTP_PORT;
+  config.login.email = AUTHOR_EMAIL;
+  config.login.password = AUTHOR_PASSWORD;
+  config.login.user_domain = F("127.0.0.1");
+
+  message.sender.name = F("Fishtank");
+  message.sender.email = AUTHOR_EMAIL;
+
+  message.subject = subject;
+  #if PRODUCTION_UNIT
+  message.addRecipient(F("David Adams"), RECIPIENT_EMAIL1);
+  #endif
+  message.addRecipient(F("Daniel Ames"), RECIPIENT_EMAIL2);
 
 
+  String textMsg = messageStr;
+  message.text.content = textMsg;
 
+  message.text.charSet = F("us-ascii");
+  message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
 
+  message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_low;
 
+  // whatever this is supposed to do
+  message.addHeader(F("Message-ID: <abcde.fghij@gmail.com>"));
 
+  if (!smtp.connect(&config))
+  {
+    MailClient.printf("Connection error, Status Code: %d, Error Code: %d, Reason: %s\n", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+    return false;
+  }
+
+  if (smtp.isAuthenticated())
+    Serial.println("Successfully logged in.");
+  else
+    Serial.println("Connected with no Auth.");
+  
+  if (!MailClient.sendMail(&smtp, &message))
+  {
+    MailClient.printf("Error, Status Code: %d, Error Code: %d, Reason: %s\n", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+    return false;
+  }
+
+  return true;
+}
 
 
 
@@ -691,11 +697,19 @@ void setup() {
 
   connectToWifi();
 
+  MailClient.networkReconnect(true);
+  
+  #if !PRODUCTION_UNIT
+  smtp.debug(1);
+  #endif
+  smtp.callback(smtpCallback);
+  
+
   RESET_REASON reason_cpu0 = rtc_get_reset_reason(0);
   RESET_REASON reason_cpu1 = rtc_get_reset_reason(1);
   if (reason_cpu0 == POWERON_RESET) {
     // Just say there was a power failure
-    sendMessageToAWS("Fishtank controller has recovered from a power failure.");
+    sendSmtp("Power recovery", "Fishtank controller has recovered from a power failure.");
   } else {
     // This was something weirder than a power blip/failure.
     // I need to know what it was.
@@ -706,7 +720,7 @@ void setup() {
     recoveryMessage += "\nCPU1 Reason: ";
     recoveryMessage += getResetReasonString(reason_cpu1);
     recoveryMessage.toCharArray(str, recoveryMessage.length());
-    sendMessageToAWS(str);
+    sendSmtp("Power recovery", str);
   }
 
 
@@ -763,7 +777,7 @@ void setup() {
       EEPROM.commit();
     }
 
-    if (sendMessageToAWS("!ALERT! Could not connect to temperature probes!\nI'M COMPLETELY DOWN!\nGet out here and fix me now!!")) {
+    if (sendSmtp("!ALERT!", "!ALERT! Could not connect to temperature probes!\nI'M COMPLETELY DOWN!\nGet out here and fix me now!!")) {
       // Couldn't find any sensors, but we managed to send out an alert.
       // Go to deep sleep and try again in an hour.
       Serial.println("Alert sent. Going to deep sleep...");
@@ -784,7 +798,7 @@ void setup() {
       // Let the user know everything is ok now.
       EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)0);
       EEPROM.commit();
-      sendMessageToAWS("Sensors are responding now. A reboot seems to have fixed it.\nStill... that's not supposed to happen. Maybe go check the connections.");
+      sendSmtp("All better", "Sensors are responding now. A reboot seems to have fixed it.\nStill... that's not supposed to happen. Maybe go check the connections.");
       Serial.println("Warning: Previously recovered from a sensor failure.");
     }
   }
@@ -854,10 +868,10 @@ void loop() {
   sensors.requestTemperatures();
 
   if (pendingAlert) {
-    // If sendMessageToAWS fails, set pendingAlert to true so it keeps trying.
+    // If sendSmtp fails, set pendingAlert to true so it keeps trying.
     // Don't give up until the error gets out!
-    Serial.println("Sending message to AWS:");
-    pendingAlert = !sendMessageToAWS(charErrorMessage);
+    Serial.println("Sending message to SMTP:");
+    pendingAlert = !sendSmtp("ALERT", charErrorMessage);
     if (!pendingAlert) {
       // Alert sent successfully
       Serial.println("Message sent successfully.");
@@ -989,7 +1003,7 @@ void loop() {
           snprintf(charErrorMessage, 262, "!ALERT! I'm down to only 2 sensors, and they disagree with each other! Sensor %d says %s, and Sensor %d says %s, and I have no way of knowing which is correct! In other words, I'M DOWN, and YOUR FISH ARE IN DANGER!! Come fix me! (Trying a reboot...)\0", sensorMap[lastTwoSensorIndecies[0]].stickerId, strTempA.c_str(), sensorMap[lastTwoSensorIndecies[1]].stickerId, strTempB.c_str());
           
           Serial.println(charErrorMessage);
-          sendMessageToAWS(charErrorMessage);
+          sendSmtp("ALERT", charErrorMessage);
 
           EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)EEPROM_RECOVERY_WHAT_TO_BELIEVE);
           EEPROM.commit();
@@ -1045,7 +1059,7 @@ void loop() {
         recoveryByte = 0;
         EEPROM.write(EEPROM_RECOVERY_BYTE, (byte)0);
         EEPROM.commit();
-        sendMessageToAWS("Ok, looks like we were having issues with sensors going off in the weeds, but I have rebooted and that appears to have resolved it. Still, that's not supposed to happen. Maybe check my connections, make sure the fish aren't messing with my senors, etc.");
+        sendSmtp("All better", "Ok, looks like we were having issues with sensors going off in the weeds, but I have rebooted and that appears to have resolved it. Still, that's not supposed to happen. Maybe check my connections, make sure the fish aren't messing with my senors, etc.");
       }
     }
   } else {
@@ -1058,7 +1072,7 @@ void loop() {
       String oneSensorTemp = String(trustedTemp);
       // Longest string example, 77 chars: ALERT! I'm limping along with only ONE sensor right now! Sensor 999: -196.60\0
       snprintf(charErrorMessage, 77, "ALERT! I'm limping along with only ONE sensor right now! Sensor %d: %s\0", oneSensor, oneSensorTemp.c_str());
-      if (oneSensorNagSent = sendMessageToAWS(charErrorMessage)) {
+      if (oneSensorNagSent = sendSmtp("ALERT", charErrorMessage)) {
         // Reset the timer
         millisSinceOneSensorTimerNagSent = 0;
         currentOneSensorTimerTick = lastOneSensorTimerTick = millis();
