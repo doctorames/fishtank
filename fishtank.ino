@@ -1,8 +1,6 @@
 #include <WiFi.h>
 #include <rom/rtc.h>
-#include <WiFiClientSecure.h>
-#include <MQTTClient.h>
-#include <ArduinoJson.h>
+//#include <ArduinoJson.h>
 #include <ESP_Mail_Client.h>
 #include <EEPROM.h>
 #include <WebServer.h>
@@ -12,7 +10,6 @@
 #include <LiquidCrystal_I2C.h>
 #include "time.h"
 
-#include "certs.h"
 #include "email.h"
 
 #define VERSION  "1.5"
@@ -65,21 +62,12 @@ char pass[] = "aaadaa001";
                                               // then it will spend 10 minutes ignoring your fishtank while it spins in a wait loop. You wanna keep this value as
                                               // low as you can. If it can't connect in the time allotted, don't worry, it will try again later.
 #define LCD_TIMEOUT  5000                     // LCD screen will turn off after this amount of time
-#define AWS_MAX_RECONNECT_TRIES 50            // How many times we should attempt to connect to AWS
 #define HTTP_INCOMING_REQ_TIMEOUT 4000uL      // Catching incoming http requests is appallingly hit or miss. It can sit forever waiting for a missed GET. Never wait longer than this amount.
 #define CORRECTION_TIMEOUT 7200000            // The max amount of time it should take for temperature to return to an acceptable range.
-                                              //   acceptable range = anywhere between TEMP_LOWER_TRIGGER and TEMP_UPPER_TRIGGER
-
-// AWS defines
-#define DEVICE_NAME "fishtemp-controller"     // The name of the device. This MUST match up with the name defined in the AWS console
-#define AWS_IOT_ENDPOINT "a3u6y1u8z9tj3s-ats.iot.us-east-1.amazonaws.com"  // The MQTTT endpoint for the device (unique for each AWS account but shared amongst devices within the account)
-#define AWS_IOT_TOPIC "$aws/things/" DEVICE_NAME "/shadow/update"  // The MQTT topic that this device should publish to
+                                              //   acceptable range = anywhere between TEMP_LOWER_TRIGGER and TEMP_UPPER_TRIGGERs
 
 
 // Globals
-WiFiClientSecure net = WiFiClientSecure();
-MQTTClient client = MQTTClient(512);
-
 SMTPSession smtp;
 void smtpCallback(SMTP_Status status);
 
@@ -307,81 +295,6 @@ bool compareAddresses(DeviceAddress a, DeviceAddress b) {
     }
   }
   return result;
-}
-
-bool connectToAWS()
-{
-  if (WiFi.status() != WL_CONNECTED) {
-     // We're down for some reason. Try to connect.
-     connectToWifi();
-     if (WiFi.status() != WL_CONNECTED) {
-        // Reconnect failed. Not much we can do.
-        return false;
-     }
-  }
-
-  // Configure WiFiClientSecure to use the AWS certificates we generated
-  net.setCACert(AWS_CERT_CA);
-  net.setCertificate(AWS_CERT_CRT);
-  net.setPrivateKey(AWS_CERT_PRIVATE);
-
-  // Connect to the MQTT broker on the AWS endpoint we defined earlier
-  client.begin(AWS_IOT_ENDPOINT, 8883, net);
-
-  // Try to connect to AWS and count how many times we retried.
-  int retries = 0;
-  Serial.print("Connecting to AWS IOT");
-
-  while (!client.connect(DEVICE_NAME) && retries < AWS_MAX_RECONNECT_TRIES) {
-    Serial.print(".");
-    delay(100);
-    retries++;
-  }
-
-  // Make sure that we did indeed successfully connect to the MQTT broker
-  // If not we just end the function and wait for the next loop.
-  if(!client.connected()){
-    Serial.println(" Timeout!");
-    return false;
-  }
-
-  // If we land here, we have successfully connected to AWS!
-  // And we can subscribe to topics and send messages.
-  Serial.println(" ..Connected!");
-  return true;
-}
-
-bool sendMessageToAWS(const char* message)
-{
-#if !PRODUCTION_UNIT
-  Serial.println("sendMessageToAws() DISABLED!!");
-  return true;
-#endif
-  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
-  if (notificationsMuted == 1) {
-     Serial.println("sendMessageToAws() DISABLED. Notifications muted.");
-     return true;
-  }
-  if (!connectToAWS()) {
-      // this is no bueno
-      return false;
-  }
-
-  StaticJsonDocument<512> jsonDoc;
-  JsonObject stateObj = jsonDoc.createNestedObject("state");
-  JsonObject reportedObj = stateObj.createNestedObject("reported");
-  
-  // "Message" is what will actually end up in the SMS message that gets sent.
-  // The AWS SNS rule uses a SQL query to specifically pick this message out of the JSON.
-  reportedObj["message"] = message;
-
-  Serial.println("Publishing message to AWS...");
-  char jsonBuffer[512];
-  serializeJson(jsonDoc, jsonBuffer);
-  bool ret = client.publish(AWS_IOT_TOPIC, jsonBuffer);
-  client.disconnect();
-
-  return ret;
 }
 
 // Returns a timestamp string in the format:
@@ -641,7 +554,7 @@ String getResetReasonString(RESET_REASON reason)
 {
   switch (reason)
   {
-    // Note the trailing spaces. For some reason, AWS trims the last character.
+    // Note the trailing spaces. For some reason, AWS trims the last character. We don't use AWS anymore, but whatever.
     case 1  : return String("POWERON_RESET - power on reset ");break;
     case 3  : return String("SW_RESET - Software reset digital core ");break;
     case 4  : return String("OWDT_RESET - Legacy watch dog reset digital core ");break;
@@ -952,7 +865,7 @@ void loop() {
   if (pendingAlert) {
     // If sendSmtp fails, set pendingAlert to true so it keeps trying.
     // Don't give up until the error gets out!
-    Serial.println("Sending message to AWS:");
+    Serial.println("Sending message to SMTP:");
     pendingAlert = !sendSmtp("ALERT", charErrorMessage);
     if (!pendingAlert) {
       // Alert sent successfully
