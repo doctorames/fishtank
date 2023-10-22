@@ -1,6 +1,5 @@
 #include <WiFi.h>
 #include <rom/rtc.h>
-//#include <ArduinoJson.h>
 #include <ESP_Mail_Client.h>
 #include <EEPROM.h>
 #include <WebServer.h>
@@ -14,7 +13,7 @@
 
 #define VERSION  "1.5"
 #define DEBUG 0
-#define PRODUCTION_UNIT 0
+#define PRODUCTION_UNIT 1
 
 #if PRODUCTION_UNIT
 char ssid[] = "ATT3HQ3Bhl";
@@ -577,6 +576,12 @@ String getResetReasonString(RESET_REASON reason)
 
 bool sendSmtp(const char* subject, const char* messageStr)
 {
+  char notificationsMuted = EEPROM.read(EEPROM_MUTE_NOTIFICATIONS_BYTE);
+  if (notificationsMuted == 1) {
+     Serial.println("sendSmtp() DISABLED. Notifications muted.");
+     return true;
+  }
+
   SMTP_Message message;
   Session_Config config;
 
